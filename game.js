@@ -6,6 +6,102 @@ const PLAYER_TWO_AVAILABLE = typeof PlayerTwoBridge !== 'undefined';
 // Admin password for edit mode
 const ADMIN_PASSWORD = 'Oliver4Games';
 
+// Hoisted static data for voice assignment
+const FEMALE_VOICES = [
+  'EXAVITQu4vr4xnSDxMaL', // Bella - soft, warm female
+  'IKne3meq5aSn9XLyUdCD', // Charlotte - elegant female
+  'Erb2aVKbUjmDbZDW0EUl', // Matilda - friendly female
+  'ThT5KcBeYPX3keUQqHPh', // Dorothy - clear female
+  'Xb7hHmsMSqMt8JDRKZmR', // Elsie - gentle female
+  'dIHfPqOYQP7sYx0wBoQj', // Matilda - mature female
+  'v7j7aL4aL6yJ3S9K6Z4f', // Sarah - wise female
+  'ZLNc5MSGzPsl58pVVI6z', // Sophia - confident female
+  'iXJp8G1Y0OKL97s9mUq8', // Domi - energetic female
+  'VR6AewLTigWG4xSOukaG', // Arnold - also good for female characters
+  'CYw3kZ02Hs0563khs1Fj', // Dave - versatile voice
+  'bVMeCyTHy58xNoL34h3p', // Clyde - mature voice
+  'ErXwobaYiN019PkySvjV', // Donald - clear voice
+  'jsCqWAovK2LkecY7zXl4', // Josh - young voice
+  'AIFQyd7GmdmPYYKDGn8P', // Matt - friendly voice
+];
+
+const MALE_VOICES = [
+  'pNInz6obpgDQGcFmaJgB', // Adam - deep male
+  'VR6AewLTigWG4xSOukaG', // Arnold - rough male
+  'CYw3kZ02Hs0563khs1Fj', // Dave - friendly male
+  'bVMeCyTHy58xNoL34h3p', // Clyde - wise male
+  'ErXwobaYiN019PkySvjV', // Donald - confident male
+  'jsCqWAovK2LkecY7zXl4', // Josh - young male
+  'AIFQyd7GmdmPYYKDGn8P', // Matt - casual male
+  '3HO6Pj9B8qLcGHYMSnQF', // Michael - professional male
+  'EjaXVo2F1d74l9kC1HMi', // James - strong male
+  'PfluYxWGeiGYBoNE9tP7', // William - sophisticated male
+  'KOun72jFzG5uUaz8Rw9g', // Lewis - warm male
+  'AVM5jL4EX9UY79nz8f4b', // Robert - authoritative male
+  'EUl2dcsEgNVTqB9q4eVx', // Sam - upbeat male
+  'gK5j0S6w7W7Q9F2cM1pF', // Thomas - thoughtful male
+  'x4rC9rTF2y4H7l4G9v5m', // Ethan - modern male
+];
+
+const NPC_VOICE_MAP = {
+  mira_healer: "en-female",
+  byte_glitched_courier: "en-male",
+  captain_loop: "en-male",
+  daisy_exe: "en-female",
+  rustjaw: "en-male",
+  worm: "en-male",
+  chess_bishop: "en-male",
+  pebble: "en-male",
+  glitch_exe: "en-female",
+  wise_one_gerald: "en-male",
+  captain_marcus: "en-male",
+  music_android: "en-female",
+  superhero_jake: "en-male",
+  zombie: "en-male",
+  cosmic_merchant: "en-female",
+  puzzle_cube: "en-male",
+  battle_royale_vendor: "en-male",
+  farm_widow: "en-female",
+  mimic: "en-male",
+  jules: "en-female",
+  aria_7_2: "en-female",
+  racing_ghost_2: "en-male",
+  lost_tetris_block_2: "en-male",
+  glitched_priest: "en-male",
+  healer: "en-female",
+  tower_turret: "en-male",
+  rogue_ai: "en-male",
+  rich_investor: "en-male",
+  sea_activist_2: "en-male",
+  harmonix: "en-male",
+  wise_one: "en-male",
+  goldmask: "en-male",
+  silent_couple: "en-male",
+  tutorial_bot: "en-male",
+  marcus_memory: "en-male",
+  sea_activist: "en-male",
+  moth_king: "en-male",
+  brom: "en-male",
+  save_child: "en-female",
+  tiko_quest_vendor: "en-male",
+  princess_melancholy: "en-female",
+  wrestling_ferret: "en-male",
+  save_point_veteran: "en-male",
+  robot_detective_k47: "en-male",
+  marcus_47b_street_loop: "en-male",
+  sos_vessel: "en-male",
+  halftime_star_bunny: "en-male",
+  unknown_fragment_8887: "en-male",
+  unknown_fragment_8909: "en-male",
+  golden_melting_effigy: "en-male",
+  sentient_server: "en-male",
+  therapy_specter: "en-male",
+  meta_receptionist: "en-female",
+  therapist_shadow: "en-male",
+  hackathon_judge: "en-female",
+  the_therapist: "en-female",
+};
+
 // --- Simple Audio Player for UI sounds ---
 class AudioPlayer {
   constructor() {
@@ -390,53 +486,16 @@ const game = {
     const characterIndex = this.getCharacterIndex(character);
     const gender = this.getCharacterGender(character);
     
-    // Voice pools with verified 11 Labs voice IDs
-    const femaleVoices = [
-      'EXAVITQu4vr4xnSDxMaL', // Bella - soft, warm female
-      'IKne3meq5aSn9XLyUdCD', // Charlotte - elegant female
-      'Erb2aVKbUjmDbZDW0EUl', // Matilda - friendly female
-      'ThT5KcBeYPX3keUQqHPh', // Dorothy - clear female
-      'Xb7hHmsMSqMt8JDRKZmR', // Elsie - gentle female
-      'dIHfPqOYQP7sYx0wBoQj', // Matilda - mature female
-      'v7j7aL4aL6yJ3S9K6Z4f', // Sarah - wise female
-      'ZLNc5MSGzPsl58pVVI6z', // Sophia - confident female
-      'iXJp8G1Y0OKL97s9mUq8', // Domi - energetic female
-      'VR6AewLTigWG4xSOukaG', // Arnold - also good for female characters
-      'CYw3kZ02Hs0563khs1Fj', // Dave - versatile voice
-      'bVMeCyTHy58xNoL34h3p', // Clyde - mature voice
-      'ErXwobaYiN019PkySvjV', // Donald - clear voice
-      'jsCqWAovK2LkecY7zXl4', // Josh - young voice
-      'AIFQyd7GmdmPYYKDGn8P', // Matt - friendly voice
-    ];
-    
-    const maleVoices = [
-      'pNInz6obpgDQGcFmaJgB', // Adam - deep male
-      'VR6AewLTigWG4xSOukaG', // Arnold - rough male
-      'CYw3kZ02Hs0563khs1Fj', // Dave - friendly male
-      'bVMeCyTHy58xNoL34h3p', // Clyde - wise male
-      'ErXwobaYiN019PkySvjV', // Donald - confident male
-      'jsCqWAovK2LkecY7zXl4', // Josh - young male
-      'AIFQyd7GmdmPYYKDGn8P', // Matt - casual male
-      '3HO6Pj9B8qLcGHYMSnQF', // Michael - professional male
-      'EjaXVo2F1d74l9kC1HMi', // James - strong male
-      'PfluYxWGeiGYBoNE9tP7', // William - sophisticated male
-      'KOun72jFzG5uUaz8Rw9g', // Lewis - warm male
-      'AVM5jL4EX9UY79nz8f4b', // Robert - authoritative male
-      'EUl2dcsEgNVTqB9q4eVx', // Sam - upbeat male
-      'gK5j0S6w7W7Q9F2cM1pF', // Thomas - thoughtful male
-      'x4rC9rTF2y4H7l4G9v5m', // Ethan - modern male
-    ];
-    
     // If we have the actual NPC data, try to find a specific voice for this character
     if (character.name && this.npcs) {
       // Create a hash from character name for consistent voice assignment
       const nameHash = this.hashString(character.name);
-      const voiceIndex = nameHash % (gender === 'male' ? maleVoices.length : femaleVoices.length);
-      return gender === 'male' ? maleVoices[voiceIndex] : femaleVoices[voiceIndex];
+      const voiceIndex = nameHash % (gender === 'male' ? MALE_VOICES.length : FEMALE_VOICES.length);
+      return gender === 'male' ? MALE_VOICES[voiceIndex] : FEMALE_VOICES[voiceIndex];
     }
     
     // Fallback: use character index to ensure variety across 55 characters
-    const voicePool = gender === 'male' ? maleVoices : femaleVoices;
+    const voicePool = gender === 'male' ? MALE_VOICES : FEMALE_VOICES;
     return voicePool[characterIndex % voicePool.length];
   },
 
@@ -869,65 +928,7 @@ const game = {
   },
 
   getVoiceForNPC(id) {
-    const map = {
-      mira_healer: "en-female",
-      byte_glitched_courier: "en-male",
-      captain_loop: "en-male",
-      daisy_exe: "en-female",
-      rustjaw: "en-male",
-      worm: "en-male",
-      chess_bishop: "en-male",
-      pebble: "en-male",
-      glitch_exe: "en-female",
-      wise_one_gerald: "en-male",
-      captain_marcus: "en-male",
-      music_android: "en-female",
-      superhero_jake: "en-male",
-      zombie: "en-male",
-      cosmic_merchant: "en-female",
-      puzzle_cube: "en-male",
-      battle_royale_vendor: "en-male",
-      farm_widow: "en-female",
-      mimic: "en-male",
-      jules: "en-female",
-      aria_7_2: "en-female",
-      racing_ghost_2: "en-male",
-      lost_tetris_block_2: "en-male",
-      glitched_priest: "en-male",
-      healer: "en-female",
-      tower_turret: "en-male",
-      rogue_ai: "en-male",
-      rich_investor: "en-male",
-      sea_activist_2: "en-male",
-      harmonix: "en-male",
-      wise_one: "en-male",
-      goldmask: "en-male",
-      silent_couple: "en-male",
-      tutorial_bot: "en-male",
-      marcus_memory: "en-male",
-      sea_activist: "en-male",
-      moth_king: "en-male",
-      brom: "en-male",
-      save_child: "en-female",
-      tiko_quest_vendor: "en-male",
-      princess_melancholy: "en-female",
-      wrestling_ferret: "en-male",
-      save_point_veteran: "en-male",
-      robot_detective_k47: "en-male",
-      marcus_47b_street_loop: "en-male",
-      sos_vessel: "en-male",
-      halftime_star_bunny: "en-male",
-      unknown_fragment_8887: "en-male",
-      unknown_fragment_8909: "en-male",
-      golden_melting_effigy: "en-male",
-      sentient_server: "en-male",
-      therapy_specter: "en-male",
-      meta_receptionist: "en-female",
-      therapist_shadow: "en-male",
-      hackathon_judge: "en-female",
-      the_therapist: "en-female",
-    };
-    return map[id] || "en-male";
+    return NPC_VOICE_MAP[id] || "en-male";
   },
 
   // Enhanced speak method for working TTS
@@ -1742,9 +1743,11 @@ Example: {"breakthrough": true, "summary": "The patient has accepted that their 
     });
     this.mapState.nodes = nodePositions;
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)'; ctx.lineWidth = 1;
+    ctx.beginPath();
     nodePositions.forEach((pos1, i) => { nodePositions.forEach((pos2, j) => {
-      if (i < j && (pos1.index + pos2.index) % 5 < 2) { ctx.beginPath(); ctx.moveTo(pos1.x, pos1.y); ctx.lineTo(pos2.x, pos2.y); ctx.stroke(); }
+      if (i < j && (pos1.index + pos2.index) % 5 < 2) { ctx.moveTo(pos1.x, pos1.y); ctx.lineTo(pos2.x, pos2.y); }
     });});
+    ctx.stroke();
     nodePositions.forEach(pos => { ctx.beginPath(); ctx.arc(pos.x, pos.y, 6, 0, Math.PI * 2); ctx.fillStyle = pos.healed ? '#4CAF50' : '#fff'; ctx.fill(); });
     ctx.restore();
   },
