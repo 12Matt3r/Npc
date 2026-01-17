@@ -18,6 +18,16 @@ const PlayerTwoBridge = (window.PlayerTwoBridge = {
   
   // Voice cache
   availableVoices: null,
+  _fallbackFemaleVoices: [
+    'EXAVITQu4vr4xnSDxMaL',  // Bella
+    'IKne3meq5aSn9XLyUdCD',  // Charlotte
+    'Erb2aVKbUjmDbZDW0EUl'   // Matilda
+  ],
+  _fallbackMaleVoices: [
+    'pNInz6obpgDQGcFmaJgB',  // Adam
+    'VR6AewLTigWG4xSOukaG',  // Arnold
+    'CYw3kZ02Hs0563khs1Fj'   // Dave
+  ],
 
   // Request queue for rate limiting
   requestQueue: [],
@@ -406,17 +416,8 @@ Guidelines for your responses:
     } else {
       // Fallback to hardcoded configuration
       const config = window.PlayerTwoConfig || {};
-      const femaleVoices = config.voices?.female || [
-        'EXAVITQu4vr4xnSDxMaL',  // Bella
-        'IKne3meq5aSn9XLyUdCD',  // Charlotte
-        'Erb2aVKbUjmDbZDW0EUl'   // Matilda
-      ];
-
-      const maleVoices = config.voices?.male || [
-        'pNInz6obpgDQGcFmaJgB',  // Adam
-        'VR6AewLTigWG4xSOukaG',  // Arnold
-        'CYw3kZ02Hs0563khs1Fj'   // Dave
-      ];
+      const femaleVoices = config.voices?.female || this._fallbackFemaleVoices;
+      const maleVoices = config.voices?.male || this._fallbackMaleVoices;
       voicePool = gender === 'female' ? femaleVoices : maleVoices;
     }
     
