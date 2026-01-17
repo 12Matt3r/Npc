@@ -16,6 +16,9 @@ const PlayerTwoBridge = (window.PlayerTwoBridge = {
   responseStream: null,
   streamController: null,
   
+  // Voice cache
+  availableVoices: null,
+
   // Request queue for rate limiting
   requestQueue: [],
   processing: false,
@@ -34,6 +37,9 @@ const PlayerTwoBridge = (window.PlayerTwoBridge = {
     
     console.log('PlayerTwoBridge: Initialized');
     
+    // Start fetching voices in background
+    this.fetchAndCacheVoices();
+
     // Test authentication
     const isAuthenticated = await this.testAuth();
     if (!isAuthenticated && config.environment?.debug) {
@@ -41,6 +47,32 @@ const PlayerTwoBridge = (window.PlayerTwoBridge = {
     }
     
     return isAuthenticated;
+  },
+
+  /**
+   * Fetch and cache available voices from API
+   */
+  async fetchAndCacheVoices() {
+    try {
+      const data = await this.getVoices();
+      if (data && data.voices && Array.isArray(data.voices)) {
+        this.availableVoices = { male: [], female: [], other: [] };
+        data.voices.forEach(v => {
+          const gender = (v.voice_gender || v.gender || v.labels?.gender || 'other').toLowerCase();
+          const id = v.id || v.voice_id;
+          if (id) {
+            if (this.availableVoices[gender]) {
+              this.availableVoices[gender].push(id);
+            } else {
+              this.availableVoices.other.push(id);
+            }
+          }
+        });
+        console.log(`PlayerTwoBridge: Cached voices - ${this.availableVoices.female.length} female, ${this.availableVoices.male.length} male, ${this.availableVoices.other.length} other`);
+      }
+    } catch (e) {
+      console.warn("PlayerTwoBridge: Failed to fetch voices, using fallbacks.", e);
+    }
   },
   
   /**
@@ -364,21 +396,29 @@ Guidelines for your responses:
    * Get voice ID for character based on gender/name
    */
   getVoiceIdForCharacter(npcData) {
-    const config = window.PlayerTwoConfig || {};
-    const femaleVoices = config.voices?.female || [
-      'EXAVITQu4vr4xnSDxMaL',  // Bella
-      'IKne3meq5aSn9XLyUdCD',  // Charlotte
-      'Erb2aVKbUjmDbZDW0EUl'   // Matilda
-    ];
+    const gender = (npcData.gender || this.detectGender(npcData.name)).toLowerCase();
     
-    const maleVoices = config.voices?.male || [
-      'pNInz6obpgDQGcFmaJgB',  // Adam
-      'VR6AewLTigWG4xSOukaG',  // Arnold
-      'CYw3kZ02Hs0563khs1Fj'   // Dave
-    ];
-    
-    const gender = npcData.gender || this.detectGender(npcData.name);
-    const voicePool = gender === 'female' ? femaleVoices : maleVoices;
+    let voicePool;
+
+    // Use cached API voices if available
+    if (this.availableVoices && this.availableVoices[gender] && this.availableVoices[gender].length > 0) {
+      voicePool = this.availableVoices[gender];
+    } else {
+      // Fallback to hardcoded configuration
+      const config = window.PlayerTwoConfig || {};
+      const femaleVoices = config.voices?.female || [
+        'EXAVITQu4vr4xnSDxMaL',  // Bella
+        'IKne3meq5aSn9XLyUdCD',  // Charlotte
+        'Erb2aVKbUjmDbZDW0EUl'   // Matilda
+      ];
+
+      const maleVoices = config.voices?.male || [
+        'pNInz6obpgDQGcFmaJgB',  // Adam
+        'VR6AewLTigWG4xSOukaG',  // Arnold
+        'CYw3kZ02Hs0563khs1Fj'   // Dave
+      ];
+      voicePool = gender === 'female' ? femaleVoices : maleVoices;
+    }
     
     // Use character name hash for consistent voice assignment
     const hash = this.hashString(npcData.name);
