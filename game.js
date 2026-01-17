@@ -2260,8 +2260,8 @@ Example: {"breakthrough": true, "summary": "The patient has accepted that their 
         const nameText = blackout ? '?????' : npc.name;
         const metaText = blackout ? '????' : `${npc.session} • ${npc.origin}`;
         const bioText = blackout ? '' : npc.crisis;
-        card.innerHTML = `${!isUnlocked ? '<div class="lock-badge">LOCKED</div>' : ''}<img class="roster-thumb loading" loading="lazy" src="${npc.habitat}" alt="${npc.name}"><div class="roster-info"><div class="roster-name">${nameText}</div><div class="roster-meta">${metaText}</div><div class="roster-bio">${bioText}</div></div>`;
-        const img = card.querySelector('img.roster-thumb'); attachImageLoadingEffects(img);
+        card.innerHTML = `${!isUnlocked ? '<div class="lock-badge">LOCKED</div>' : ''}<div class="roster-thumb"><img class="loading" loading="lazy" src="${npc.habitat}" alt="${npc.name}"></div><div class="roster-info"><div class="roster-name">${nameText}</div><div class="roster-meta">${metaText}</div><div class="roster-bio">${bioText}</div></div>`;
+        const img = card.querySelector('.roster-thumb img'); attachImageLoadingEffects(img);
         card.setAttribute('role','button'); card.tabIndex = 0;
         card.setAttribute('aria-label', `${nameText} – ${metaText}${isUnlocked ? '' : ' (locked)'}`);
         if (isUnlocked) {
