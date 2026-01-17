@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NPC Therapy - Digital Consciousness Clinic</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Main Menu -->
+    <div id="main-menu" class="screen active">
+        <!-- Compact Header -->
+        <div class="compact-header">
+            <div class="header-left">
+                <div class="game-title-group">
+                    <h1 class="game-title">NPC THERAPY</h1>
+                    <p class="game-subtitle">Digital Consciousness Clinic</p>
+                </div>
+                <div class="game-stats">
+                    <span>Healed: <span id="menu-healed">0</span>/<span id="menu-total">0</span></span>
+                    <span>Time: <span id="game-time">00:00</span></span>
+                </div>
+            </div>
+            
+            <div class="header-center">
+                <button class="continue-btn" id="continue-btn" style="display:none;" onclick="game.continueLastSession()">CONTINUE</button>
+                
+                <!-- Compact icon buttons -->
+                <button class="compact-btn" onclick="game.toggleFullscreen()" title="Full Screen">⛶</button>
+                <button class="compact-btn" onclick="game.openPathToSelf()" title="Path to Self">📻</button>
+                <button class="compact-btn" onclick="game.showConnectionMap()" title="Map">🗺️</button>
+                <button class="compact-btn" onclick="game.showJournal()" title="Journal">📔</button>
+                <button class="compact-btn" onclick="game.showCollectibles()" title="Collectibles">⭐</button>
+            </div>
+            
+            <div class="header-right">
+                <!-- Hamburger Menu -->
+                <button class="hamburger-btn" id="hamburger-btn" onclick="game.toggleHamburgerMenu()">
+                    <div class="hamburger-lines">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </div>
+                </button>
+                <!-- Hamburger Dropdown -->
+                <div class="hamburger-dropdown" id="hamburger-dropdown">
+                    <div class="dropdown-item" onclick="game.showLoadModal(); game.closeHamburgerMenu();">
+                        <span class="item-icon">📂</span> Load
+                    </div>
+                    <div class="dropdown-item" onclick="game.saveGame(); game.closeHamburgerMenu();">
+                        <span class="item-icon">💾</span> Save
+                    </div>
+                    <div class="dropdown-item" onclick="game.openSettings(); game.closeHamburgerMenu();">
+                        <span class="item-icon">⚙️</span> Settings
+                    </div>
+                    <div class="dropdown-item" onclick="game.showCredits(); game.closeHamburgerMenu();">
+                        <span class="item-icon">📜</span> Credits
+                    </div>
+                    <div class="dropdown-item" onclick="game.showCharacterCreator(); game.closeHamburgerMenu();">
+                        <span class="item-icon">➕</span> Create NPC
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Main Content -->
+        <div class="compact-content">
+            <input id="menu-search" class="compact-search" type="text" placeholder="Search patients...">
+            <div class="roster-panel">
+                <div id="menu-roster-grid" class="roster-grid"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Therapy Session -->
+    <div id="therapy-session" class="screen">
+        <div class="session-header">
+            <h2 id="session-npc-name"></h2>
+            <button class="btn" onclick="game.openRadio()">📻 RADIO</button>
+            <button class="btn" onclick="game.exportTranscript()">EXPORT</button>
+            <button class="btn" onclick="game.requestExitSession()">EXIT</button>
+            <div id="trust-badge" class="trust-badge" aria-live="polite" title="Patient trust">Trust: 0/10</div>
+            <div class="cot-bar">
+              <div id="cot-avatars" class="cot-avatars" title="Co‑therapy online"></div>
+              <div class="cot-actions">
+                <button class="psf-btn" onclick="game.sendReaction('👍')">👍</button>
+                <button class="psf-btn" onclick="game.sendReaction('💡')">💡</button>
+                <button class="psf-btn" onclick="game.sendReaction('❤️')">❤️</button>
+              </div>
+            </div>
+            <div id="cot-insights" class="cot-insights" aria-live="polite" title="Shared session insights"></div>
+        </div>
+        <div class="session-container">
+            <div class="habitat-display" id="habitat-bg">
+                <div id="therapist-office-overlay"></div>
+                <img id="npc-portrait" class="npc-portrait" alt="NPC portrait" />
+                <div id="npc-thought-bubble" class="thought-bubble" style="display: none;">
+                    <div class="thought-bubble-spinner" style="display: none;"></div>
+                    <div id="npc-thought-image-container"></div>
+                </div>
+                <div id="cot-reactions" class="cot-reactions"></div>
+                <div id="patient-bio-window" class="patient-bio-window">
+                    <div class="pbw-header">
+                        <span>Patient Dossier</span>
+                        <button id="pbw-close-btn" class="psf-btn">✕</button>
+                    </div>
+                    <div id="pbw-content" class="pbw-content"></div>
+                </div>
+                <div class="dialogue-box">
+                    <div class="speaker" id="speaker"></div>
+                    <div class="dialogue-text" id="dialogue"></div>
+                    <div id="typing-indicator" class="typing-indicator" style="display: none;"><span>.</span><span>.</span><span>.</span></div>
+                    <div id="memory-game-container" class="memory-game-container"></div>
+                    <div class="choices" id="choices">
+                        <!-- Choices will be replaced by an input field -->
+                    </div>
+                    <div id="player-input-area" class="player-input-container">
+                        <input type="text" id="player-response" placeholder="Type your response...">
+                        <button id="send-response-btn" class="send-btn">SEND</button>
+                    </div>
+                    <div id="quick-replies" class="quick-replies"></div>
+                    <button id="conclude-session-btn" class="btn conclude-btn" style="display: none;">Attempt to Conclude Session</button>
+                    <button id="skip-typing-btn" class="psf-btn skip-btn" title="Skip typing animation" style="position:absolute;top:8px;right:8px;">SKIP</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Journal -->
+    <div id="journal" class="screen">
+        <div class="journal-header">
+            <h1>Patient Journal</h1>
+            <div class="journal-stats">
+                <div>Total Patients: <span id="journal-total">0</span></div>
+                <div>Healed: <span id="journal-healed">0</span></div>
+                <div>Progress: <span id="journal-progress">0%</span></div>
+            </div>
+        </div>
+        <div class="journal-list" id="journal-list"></div>
+        <div style="margin-top: 2rem;">
+            <button class="btn" onclick="game.returnToGame()">RETURN</button>
+        </div>
+    </div>
+
+    <!-- Connection Map -->
+    <div id="connection-map" class="screen">
+        <div class="top-bar">
+            <h2>Connection Map</h2>
+            <div>
+                <button class="btn" onclick="game.openRadio()">📻 RADIO</button>
+                <button class="btn" onclick="game.returnToGame()">RETURN</button>
+            </div>
+        </div>
+        <div class="map-container">
+            <canvas id="map-canvas" class="map-canvas"></canvas>
+            <div id="map-tooltip" class="map-tooltip"></div>
+            <div class="map-controls">
+                <button class="map-btn" onclick="game.resetMapView()">RESET VIEW</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Rorschach Test Screen -->
+    <div id="rorschach-test" class="screen">
+        <div class="rorschach-container">
+            <h1>Image Analysis Test</h1>
+            <p>Upload a photo for the patient to analyze and interpret.</p>
+            <div id="rorschach-image-container">
+                <div class="photo-upload-area">
+                    <input type="file" id="photo-upload" accept="image/*" style="display: none;" onchange="game.handlePhotoUpload(event)">
+                    <button class="btn" onclick="document.getElementById('photo-upload').click()">📷 Upload Photo</button>
+                    <p class="upload-hint">Click to upload any image (JPG, PNG, GIF)</p>
+                </div>
+            </div>
+            <textarea id="rorschach-input" placeholder="What does the patient think about this image?..." disabled></textarea>
+            <div class="rorschach-controls">
+                <button class="btn" onclick="game.submitRorschach()" id="submit-btn" disabled>Submit Analysis</button>
+                <button class="btn" onclick="game.clearPhoto()">Clear Photo</button>
+                <button class="btn" onclick="game.exitRorschach()">Return to Session</button>
+            </div>
+            <div id="rorschach-analysis" class="rorschach-analysis"></div>
+        </div>
+    </div>
+
+    <!-- Ending Screen -->
+    <div id="ending" class="screen">
+        <h1 class="ending-title" id="ending-title"></h1>
+        <div class="ending-stats">
+            <div>NPCs Healed: <span id="ending-healed">0</span>/<span id="ending-total">0</span></div>
+            <div>Success Rate: <span id="ending-rate">0%</span></div>
+        </div>
+        <p class="ending-message" id="ending-message"></p>
+        <button class="btn" onclick="game.returnToMenu()">RETURN TO MENU</button>
+    </div>
+
+    <!-- Credits Screen -->
+    <div id="credits" class="screen">
+        <div class="credits-scroll-container">
+            <div class="credits-content">
+                <h1>Credits</h1>
+
+                <div class="credits-video-wrapper">
+                    <iframe
+                        src="https://www.youtube.com/embed/jfSAfMNQCNY"
+                        title="YouTube video player"
+                        frameborder="0"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        allowfullscreen>
+                    </iframe>
+                </div>
+
+                <h3 class="credits-subtitle">AI Services Featured</h3>
+                <div class="credits-links-small">
+                    <a href="https://gemini.google.com" target="_blank">Google Gemini</a> &bull;
+                    <a href="https://chat.openai.com" target="_blank">ChatGPT</a> &bull;
+                    <span>ComfyUI</span> &bull;
+                    <a href="https://glif.app" target="_blank">Glif.app</span> &bull;
+                    <span>Pollinations AI</span> &bull;
+                    <a href="https://agent.minimaxi.chat" target="_blank">MiniMax AI Agent</a> &bull;
+                    <a href="https://hailuoai.com" target="_blank">Hailuo AI</a> &bull;
+                    <span>waytoAGI</span> &bull;
+                    <a href="https://artcraft.ai" target="_blank">ArtCraft</a> &bull;
+                    <a href="https://jules.google.com" target="_blank">Google Jules</a> &bull;
+                    <a href="https://elevenlabs.io/" target="_blank">ElevenLabs</a> &bull;
+                    <span>Websim</span>
+                </div>
+
+                <h3 class="credits-subtitle">Special Recognition</h3>
+                <a href="https://www.ChromaAwards.com" target="_blank">
+                    <img src="IMG_8482.png" alt="Chroma Awards" class="credits-logo large">
+                </a>
+
+                <h3 class="credits-subtitle">Community Credits</h3>
+                <div id="community-credits-container" class="community-credits-container">
+                    <!-- User-added credits will go here -->
+                </div>
+                <div id="credits-edit-controls" class="credits-edit-controls" style="display: none;">
+                    <button class="btn" onclick="game.showAddCreditModal()">+ Add Supporter</button>
+                    <button class="btn" onclick="game.saveCommunityCredits()">Save Changes</button>
+                    <button class="btn" onclick="game.toggleCreditsEditMode(false)">Exit Edit Mode</button>
+                </div>
+
+                <h3 class="credits-subtitle">Music Credit</h3>
+                <p>"sofa king sad boi" compositions</p>
+                <a href="https://www.youtube.com/playlist?list=PLPug0RGgea9rPoVpu8ytw7dRHLZb4RNZc" target="_blank" class="credits-youtube-link">YouTube Playlist</a>
+
+            </div>
+            <div class="credits-toolbar">
+                <button class="btn" onclick="game.toggleCreditsEditMode(true)">Edit Community Credits</button>
+                <button class="btn" onclick="game.returnToMenu()">RETURN TO MENU</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <div id="save-modal" class="modal">
+        <div class="modal-content">
+            <h2 class="modal-title">Save Game</h2>
+            <p>Copy this code to resume your progress later:</p>
+            <input type="text" class="modal-input" id="save-code" readonly>
+            <div class="modal-buttons">
+                <button class="btn" onclick="game.copySaveCode()">COPY</button>
+                <button class="btn" onclick="game.closeModal('save-modal')">CLOSE</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="add-credit-modal" class="modal">
+        <div class="modal-content">
+            <h2 class="modal-title" id="credit-modal-title">Add Supporter</h2>
+            <p>Image File:</p>
+            <input type="file" id="credit-image-upload" class="modal-input" accept="image/*">
+            <p>Current Image:</p>
+            <img id="credit-image-preview" src="" alt="Image Preview" style="max-width: 100px; max-height: 100px; display: none; margin-bottom: 1rem;">
+            <p>Link URL (optional):</p>
+            <input type="text" class="modal-input" id="credit-link-url" placeholder="https://example.com">
+            <div class="modal-buttons">
+                <button class="btn" onclick="game.saveCreditItem()">SAVE</button>
+                <button class="btn" onclick="game.closeModal('add-credit-modal')">CANCEL</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="load-modal" class="modal">
+        <div class="modal-content">
+            <h2 class="modal-title">Load Game</h2>
+            <p>Enter your save code:</p>
+            <input type="text" class="modal-input" id="load-code" placeholder="Paste save code here">
+            <div class="modal-buttons">
+                <button class="btn" onclick="game.loadGame()">LOAD</button>
+                <button class="btn" onclick="game.closeModal('load-modal')">CANCEL</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="character-creator-modal" class="modal">
+      <div class="modal-content large">
+        <div class="modal-header">
+          <h2 class="modal-title">Create-an-NPC</h2>
+          <button class="btn" onclick="game.closeModal('character-creator-modal')">CLOSE</button>
+        </div>
+        <div class="creator-container">
+          <div class="creator-form">
+            <h3>Import NPC (JSON)</h3>
+            <p>Paste a JSON object with keys: name, origin, crisis, image (optional), opening_statement (optional)</p>
+            <textarea id="json-npc-input" class="modal-input" placeholder='{"name":"...", "origin":"...", "crisis":"...", "image":"https://..."}'></textarea>
+            <div style="font-size:.85rem;opacity:.7;margin-top:-.5rem;margin-bottom:.5rem;">Tip: You can also drop a .json file onto the box above.</div>
+            <label style="font-size:.9rem;opacity:.8;">NPC Portrait (optional):</label>
+            <input type="file" id="json-npc-image-upload" class="modal-input" accept="image/*">
+            <label style="font-size:.9rem;opacity:.8;">Card Photo (optional):</label>
+            <input type="file" id="json-card-image-upload" class="modal-input" accept="image/*">
+            <button class="btn" id="json-npc-import-btn">IMPORT NPC</button>
+          </div>
+          <!-- External character creator iframe removed for Player Two compatibility -->
+          <!-- <iframe id="creator-iframe" src="https://npc-therapy-core-engine--sofakingsadboi.on.websim.com/" style="width:100%;height:100%;border:0;"></iframe> -->
+          <div id="creator-placeholder" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#1a1a2e;color:#888;">
+            <div style="text-align:center;padding:2rem;">
+              <p style="font-size:1.2rem;margin-bottom:1rem;">Character Creator</p>
+              <p style="font-size:0.9rem;">Use the JSON import form to create custom NPCs</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div id="collectibles-modal" class="modal">
+        <div class="modal-content large">
+             <div class="modal-header">
+                <h2 class="modal-title">Symbolic Collectibles</h2>
+                <button class="btn" onclick="game.closeModal('collectibles-modal')">CLOSE</button>
+            </div>
+            <div id="collectibles-grid" class="collectibles-grid">
+                <!-- Collectibles will be added here -->
+            </div>
+        </div>
+    </div>
+
+    <div id="path-to-self-modal" class="modal">
+        <div class="modal-content large">
+             <div class="modal-header">
+                <h2 class="modal-title">Path to Self</h2>
+                <button class="btn" onclick="game.closeModal('path-to-self-modal')">CLOSE</button>
+            </div>
+            <iframe id="path-to-self-iframe" src=""></iframe>
+        </div>
+    </div>
+
+    <!-- Radio Modal -->
+    <div id="radio-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">In-Game Radio</h2>
+                <button class="btn" onclick="game.closeModal('radio-modal')">CLOSE</button>
+            </div>
+            <div style="position:relative;padding-top:56.25%;background:#111;border:1px solid #444;">
+                <div id="radio-player-container" style="position:absolute;top:0;left:0;width:100%;height:100%;">
+                    <iframe id="radio-player" style="position:absolute;top:0;left:0;width:100%;height:100%;"
+                        src="https://www.youtube.com/embed?listType=playlist&list=PLPug0RGgea9rPoVpu8ytw7dRHLZb4RNZc&enablejsapi=1"
+                        frameborder="0" allow="autoplay; encrypted-media" allowfullscreen>
+                    </iframe>
+                </div>
+            </div>
+            <p style="font-size:0.8rem;opacity:0.7;margin-top:0.5rem;">Tip: Audio may start muted due to browser policies. Unmute in the player.</p>
+        </div>
+    </div>
+
+    <div id="settings-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">Settings</h2>
+                <button class="btn" onclick="game.closeModal('settings-modal')">CLOSE</button>
+            </div>
+            <div class="settings-group">
+                <label for="setting-tts" class="settings-label">
+                    <input type="checkbox" id="setting-tts"> Enable Voice (TTS)
+                </label>
+            </div>
+            <div class="settings-group">
+                <label for="setting-stt" class="settings-label">
+                    <input type="checkbox" id="setting-stt"> Enable Voice Input (Speech‑to‑Text)
+                </label>
+            </div>
+            <div class="settings-group">
+                <label for="setting-reduce-motion" class="settings-label">
+                    <input type="checkbox" id="setting-reduce-motion"> Reduce Motion (disable typewriter)
+                </label>
+            </div>
+            <div class="settings-group">
+                <label for="setting-dialogue-scale" class="settings-label">Dialogue Text Size</label>
+                <input type="range" id="setting-dialogue-scale" min="0.9" max="1.6" step="0.1">
+                <div class="settings-hint">Applies to therapy dialogue and inputs.</div>
+            </div>
+            <div class="settings-group">
+                <button class="btn" id="setting-enter-edit">Edit Characters (Admin)</button>
+                <button class="btn" id="setting-exit-edit">Exit Edit Mode</button>
+                <button class="btn" id="save-all-images-btn">Save All Images (Global)</button>
+            </div>
+            <div class="modal-buttons">
+                <button class="btn" onclick="game.saveSettings()">SAVE</button>
+                <button class="btn" onclick="game.resetSettings()">RESET</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="npc-edit-modal" class="modal">
+        <div class="modal-content large">
+            <div class="modal-header">
+                <h2 class="modal-title">Edit Character</h2>
+                <button class="btn" onclick="game.closeModal('npc-edit-modal')">CLOSE</button>
+            </div>
+            <div class="creator-container">
+                <div class="creator-form">
+                    <input id="npc-edit-name" class="modal-input" placeholder="Name">
+                    <input id="npc-edit-origin" class="modal-input" placeholder="Origin">
+                    <textarea id="npc-edit-crisis" class="modal-input" placeholder="Crisis"></textarea>
+                    <label style="font-size:.9rem;opacity:.8;">Main Image (habitat):</label>
+                    <input type="file" id="npc-edit-habitat-upload" class="modal-input" accept="image/*">
+                    <label style="font-size:.9rem;opacity:.8;">Office/Session Image:</label>
+                    <input type="file" id="npc-edit-office-upload" class="modal-input" accept="image/*">
+                    <button class="btn" id="npc-edit-save-btn">SAVE CHANGES</button>
+                </div>
+                <div class="creator-preview" id="npc-edit-preview" style="width:60%;">
+                    <!-- ...existing content... -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://www.youtube.com/iframe_api"></script>
+    
+    <!-- Player Two Integration -->
+    <script src="config.js"></script>
+    <script src="p2-bridge.js"></script>
+    <script src="npc-config.js"></script>
+    
+    <script type="module" src="game.js"></script>
+
+    <!-- Global Loader -->
+    <div id="global-loader" class="global-loader" aria-live="polite" aria-busy="true" style="display:none;">
+        <div class="loader-content">
+            <div class="spinner"></div>
+            <div class="loader-text">Generating image... this may take ~10 seconds</div>
+        </div>
+    </div>
+    <div id="path-self-float" class="path-self-float" aria-live="polite" style="display:none;">
+        <div class="psf-header">
+            <span>Path to Self</span>
+            <div style="display:flex;gap:0.4rem;align-items:center;">
+                <button id="psf-toggle-btn" class="psf-btn" title="Maximize">⤢</button>
+                <button id="psf-close-btn" class="psf-btn" title="Close">✕</button>
+            </div>
+        </div>
+        <iframe id="path-self-float-iframe" src="" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+    </div>
+
+    <!-- Floating Radio Button -->
+    <button id="floating-radio-btn" class="floating-radio" aria-label="Open In-Game Radio">📻 RADIO</button>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+    <!-- Command Palette -->
+    <div id="cmdk-modal" class="modal" aria-modal="true" role="dialog" aria-labelledby="cmdk-title">
+      <div class="modal-content cmdk">
+        <div class="cmdk-header">
+          <h2 id="cmdk-title" class="modal-title">Quick Search</h2>
+          <button class="btn" id="cmdk-close-btn" aria-label="Close">CLOSE</button>
+        </div>
+        <input id="cmdk-input" type="text" class="modal-input" placeholder="Search patients… (Enter to start session)" aria-autocomplete="list" aria-controls="cmdk-list" />
+        <div id="cmdk-list" class="cmdk-list" role="listbox" aria-label="Search results"></div>
+        <div class="cmdk-hint">↑/↓ to navigate • Enter to Start • Esc to Close</div>
+      </div>
+    </div>
+    <!-- Help Modal -->
+    <div id="help-modal" class="modal" aria-modal="true" role="dialog" aria-labelledby="help-title">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 id="help-title" class="modal-title">Help & Shortcuts</h2>
+          <button class="btn" id="help-close-btn" aria-label="Close">CLOSE</button>
+        </div>
+        <div style="line-height:1.8;">
+          <p><strong>Global</strong></p>
+          <ul style="margin-left:1rem;">
+            <li>?: Open Help</li>
+            <li>Ctrl/Cmd+K: Quick Search (Command Palette)</li>
+            <li>J: Journal • C: Credits • M: Main Menu • R: Radio • S: Save</li>
+          </ul>
+          <p><strong>Main Menu</strong></p>
+          <ul style="margin-left:1rem;">
+            <li>/: Focus search • Enter: Start first unlocked match</li>
+          </ul>
+          <p><strong>Therapy Session</strong></p>
+          <ul style="margin-left:1rem;">
+            <li>Space or click dialogue: Skip typing animation</li>
+            <li>1/2/3: Send quick reply</li>
+            <li>Esc: Close active modal</li>
+          </ul>
+          <p style="opacity:.75;">Tip: Click the patient portrait to view their dossier; use Settings to enable Voice (TTS) and adjust dialogue size.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Permission Request Modal -->
+    <div id="permission-request-modal" class="modal" aria-modal="true" role="dialog" aria-labelledby="permission-title">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 id="permission-title" class="modal-title">Enable Voice Features</h2>
+        </div>
+        <div class="permission-content">
+          <div class="permission-icon">🎙️🔊</div>
+          <p class="permission-message">
+            To have a realistic session, <strong>NPC Therapy</strong> needs to use your microphone and speakers.
+          </p>
+          <div class="permission-features">
+            <div class="permission-feature">
+              <span class="feature-icon">🎙️</span>
+              <div class="feature-text">
+                <strong>Microphone (Speech-to-Text)</strong><br>
+                Lets you talk to your patient.
+              </div>
+            </div>
+            <div class="permission-feature">
+              <span class="feature-icon">🔊</span>
+              <div class="feature-text">
+                <strong>Speakers (Text-to-Speech)</strong><br>
+                Lets you hear your patient's replies.
+              </div>
+            </div>
+          </div>
+          <p class="permission-note">Your browser will ask you to 'Allow' both. Please approve them to continue.</p>
+        </div>
+        <div class="modal-buttons">
+          <button class="btn" id="permission-allow-btn">ALLOW ACCESS</button>
+          <button class="btn" id="permission-text-only-btn">TEXT ONLY</button>
+        </div>
+      </div>
+    </div>
+</body>
+</html>

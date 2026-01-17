@@ -1,0 +1,43 @@
+{
+    "name": "NPC Therapy - Digital Consciousness Clinic",
+    "version": "1.0.0",
+    "description": "A therapy simulation game where you help video game NPCs process their existential crises",
+    "entry_point": "index.html",
+    "author": "Oliver4Games",
+    "icons": {
+        "72": "/IMG_8482.png",
+        "512": "/IMG_8482.png"
+    },
+    "permissions": [
+        "microphone",
+        "speech-synthesis"
+    ],
+    "settings": {
+        "voice_enabled": true,
+        "speech_recognition_enabled": false,
+        "reduce_motion": false,
+        "dialogue_scale": 1.0
+    },
+    "api_endpoints": {
+        "player_two": "https://api.player2.game/v1",
+        "websocket": null
+    },
+    "assets": [
+        "*.html",
+        "*.css",
+        "*.js",
+        "*.png",
+        "*.jpg",
+        "*.mp3",
+        "*.wav"
+    ],
+    "dependencies": {
+        "player_two_api": "^1.0.0"
+    },
+    "game_config": {
+        "max_npcs": 20,
+        "session_timeout": 3600,
+        "auto_save": true,
+        "multiplayer": false
+    }
+}
