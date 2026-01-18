@@ -13,6 +13,9 @@ const PlayerTwoConfig = {
   // Otherwise, provide your Bearer token
   authToken: null, // Example: "your-api-token-here"
   
+  // Client ID for Device Code Flow
+  clientId: '019bc7e3-eca4-7be8-ab6b-38b6b01bf701',
+
   // API Base URL
   apiBase: 'https://api.player2.game/v1',
   
