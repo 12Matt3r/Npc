@@ -914,6 +914,8 @@ const game = {
       this.spawnCurrentNPC().catch(err => {
         console.warn('Failed to spawn NPC on Player Two:', err);
       });
+    // Register function handler
+    PlayerTwoBridge.registerFunctionHandler((call) => this.handleNpcFunctionCall(call));
     }
     
     this.showDialogue(this.currentNPC.opening_statement);
@@ -2359,7 +2361,8 @@ Respond with only a JSON object: {"bond_change": number, "reason": "A brief expl
       
       const spawnResult = await PlayerTwoBridge.spawnNPC(npcData, {
         keepGameState: true,
-        ttsSpeed: 0.95
+        ttsSpeed: 0.95,
+        functions: this.getNpcFunctions()
       });
       
       this.currentNPCId = spawnResult.npc_id;
@@ -2384,6 +2387,56 @@ Respond with only a JSON object: {"bond_change": number, "reason": "A brief expl
       console.warn('NPC cleanup warning:', error);
     } finally {
       this.currentNPCId = null;
+    }
+  },
+
+  /**
+   * Get list of functions available to NPCs
+   */
+  getNpcFunctions() {
+    return [
+      {
+        name: "trigger_memory",
+        description: "Trigger a visual flashback or memory for the patient. Use this when the conversation reveals a deep, specific detail about their past.",
+        parameters: {
+          memory_type: { type: "string", description: "The type of memory: 'happy', 'traumatic', 'neutral'" },
+          description: { type: "string", description: "A brief description of what is seen in the memory." }
+        },
+        required: ["memory_type", "description"]
+      },
+      {
+        name: "change_environment",
+        description: "Alter the therapy room environment to reflect the patient's mood or story.",
+        parameters: {
+          environment: { type: "string", description: "The type of environment: 'forest', 'space', 'void', 'pixel_city'" }
+        },
+        required: ["environment"]
+      }
+    ];
+  },
+
+  /**
+   * Handle function calls from NPCs
+   */
+  handleNpcFunctionCall(call) {
+    console.log("NPC Function Call:", call);
+    const { name, arguments: args } = call;
+
+    if (name === 'trigger_memory') {
+      this.toast(`Memory Triggered: ${args.memory_type}`);
+      // Visual feedback for memory
+      const overlay = document.getElementById('therapist-office-overlay');
+      if (overlay) {
+        overlay.style.backgroundColor = args.memory_type === 'happy' ? 'rgba(255, 223, 0, 0.2)' :
+                                      args.memory_type === 'traumatic' ? 'rgba(255, 0, 0, 0.2)' : 'rgba(0, 0, 255, 0.1)';
+        setTimeout(() => overlay.style.backgroundColor = 'transparent', 3000);
+      }
+    } else if (name === 'change_environment') {
+      this.toast(`Environment Shifting: ${args.environment}`);
+      // In a real implementation, this would switch background images
+      // For now, just a visual tint or effect
+      document.body.style.filter = 'sepia(0.5)';
+      setTimeout(() => document.body.style.filter = 'none', 5000);
     }
   },
 
