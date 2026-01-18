@@ -102,6 +102,10 @@ const NPC_VOICE_MAP = {
   the_therapist: "en-female",
 };
 
+// Hoisted static data for gender heuristics
+const GENDER_HEURISTIC_FEMALE_NAMES = ['sarah', 'emma', 'sophie', 'chloe', 'ava', 'mia', 'isabella', 'emily', 'grace', 'hannah', 'lily', 'zoe', 'leah', 'lucy', 'ella', 'freya', 'ivy', 'scarlett', 'imogen', 'poppy', 'alice', 'ruby', 'charlie', 'brooke', 'daisy'];
+const GENDER_HEURISTIC_MALE_NAMES = ['oliver', 'harry', 'jack', 'jacob', 'noah', 'charlie', 'thomas', 'william', 'james', 'george', 'alfie', 'joshua', 'muhammad', 'harrison', 'leo', 'alexander', 'archie', 'mason', 'ethan', 'joseph', 'freddie', 'samuel', 'ryan'];
+
 // --- Simple Audio Player for UI sounds ---
 class AudioPlayer {
   constructor() {
@@ -521,12 +525,8 @@ const game = {
   getCharacterGender(character) {
     const name = character.name ? character.name.toLowerCase() : '';
     
-    // Simple heuristics based on common names
-    const femaleNames = ['sarah', 'emma', 'sophie', 'chloe', 'ava', 'mia', 'isabella', 'emily', 'grace', 'hannah', 'lily', 'zoe', 'leah', 'lucy', 'ella', 'freya', 'ivy', 'scarlett', 'imogen', 'poppy', 'alice', 'ruby', 'charlie', 'brooke', 'daisy'];
-    const maleNames = ['oliver', 'harry', 'jack', 'jacob', 'noah', 'charlie', 'thomas', 'william', 'james', 'george', 'alfie', 'joshua', 'muhammad', 'harrison', 'leo', 'alexander', 'archie', 'mason', 'ethan', 'joseph', 'freddie', 'samuel', 'ryan'];
-    
-    if (femaleNames.some(n => name.includes(n))) return 'female';
-    if (maleNames.some(n => name.includes(n))) return 'male';
+    if (GENDER_HEURISTIC_FEMALE_NAMES.some(n => name.includes(n))) return 'female';
+    if (GENDER_HEURISTIC_MALE_NAMES.some(n => name.includes(n))) return 'male';
     
     // If we can't determine, assume neutral/female
     return 'female';
