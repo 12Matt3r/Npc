@@ -345,8 +345,12 @@ export class Game {
 
   newGame() {
     this.healedNPCs.clear(); this.unlockedVersion = 0; this.healedVersion = 0;
-    const finalIds = new Set(['hackathon_judge','meta_receptionist','therapist_shadow','the_therapist']);
-    this.unlockedNPCs = new Set(this.npcs.map((n,i)=>({n,i})).filter(item=>!finalIds.has(item.n.id)).map(item=>item.i));
+    // Unlock all except the last 4 special characters
+    this.unlockedNPCs = new Set();
+    const lockCount = 4;
+    for (let i = 0; i < this.npcs.length - lockCount; i++) {
+        this.unlockedNPCs.add(i);
+    }
     this.therapistMentalState = 0; this.collectibles = []; this.currentPage = 0;
     this.startTime = Date.now(); this.gameTime = 0; this.chromaAwardGiven = false;
     this.communityCredits = []; this.saveCommunityCredits(); this.renderCommunityCredits();
@@ -1341,6 +1345,32 @@ export class Game {
     const fr = document.getElementById('floating-radio-btn'); if (fr) fr.title = 'Open In-Game Radio (R)';
   }
 
+  startHints() {
+    // Stub: functionality moved or pending reimplementation
+  }
+
+  loadSettings() {
+    try {
+      const saved = localStorage.getItem('npcTherapySettings');
+      if (saved) {
+        this.settings = { ...this.settings, ...JSON.parse(saved) };
+      }
+      if (localStorage.getItem('npcTherapyTextOnlyMode') === 'true') {
+        this.textOnlyMode = true;
+      }
+    } catch (e) { console.warn('Error loading settings:', e); }
+  }
+
+  applySettings() {
+    if (this.textOnlyMode) {
+        this.settings.tts = false;
+        this.settings.stt = false;
+    }
+    document.body.classList.toggle('reduce-motion', !!this.settings.reduceMotion);
+    const ds = this.settings.dialogueScale || 1;
+    document.documentElement.style.setProperty('--dialogue-scale', ds);
+  }
+
   renderCommunityCredits() {
     const container = document.getElementById('community-credits-container');
     const existingChildren = Array.from(container.children);
@@ -2057,8 +2087,17 @@ export class Game {
 
   applySaveData(saveData) {
     this.healedNPCs = new Set(saveData.healed || []); this.healedVersion++;
-    if (saveData.unlocked && saveData.unlocked.length > 0) { this.unlockedNPCs = new Set(saveData.unlocked); this.unlockedVersion++; }
-    else { const finalIds = new Set(['hackathon_judge','meta_receptionist','therapist_shadow','the_therapist']); this.unlockedNPCs = new Set(this.npcs.map((n,i)=>({n,i})).filter(item=>!finalIds.has(item.n.id)).map(item=>item.i)); }
+    if (saveData.unlocked && saveData.unlocked.length > 0) {
+      this.unlockedNPCs = new Set(saveData.unlocked);
+      this.unlockedVersion++;
+    } else {
+      // Fallback: Unlock all except last 4
+      this.unlockedNPCs = new Set();
+      const lockCount = 4;
+      for (let i = 0; i < this.npcs.length - lockCount; i++) {
+          this.unlockedNPCs.add(i);
+      }
+    }
     this.therapistMentalState = saveData.mentalState || 0; this.collectibles = saveData.collectibles || [];
     this.gameTime = saveData.time || 0; this.chromaAwardGiven = saveData.award || false;
     this.communityCredits = saveData.credits || []; this.npcNotes = saveData.npcNotes || {};
