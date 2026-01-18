@@ -1,4 +1,0 @@
-Running benchmark with 1000000 iterations...
-Old Implementation: 1295.46ms
-New Implementation: 1244.58ms
-Improvement: 3.93%
