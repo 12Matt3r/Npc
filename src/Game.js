@@ -378,6 +378,85 @@ export class Game {
     if (micButton) { micButton.style.display = this.settings.stt && this.speechRecognition.supported ? 'block' : 'none'; }
   }
 
+  reorderAndRenumber() {
+    // Ensure sessions are numbered sequentially
+    this.npcs.forEach((npc, index) => {
+      npc.session = `Session ${String(index + 1).padStart(2, '0')}`;
+    });
+  }
+
+  scheduleUpdateMenuRosterView() {
+    if (this._menuRenderScheduled) return;
+    this._menuRenderScheduled = true;
+    requestAnimationFrame(() => {
+      this._menuRenderScheduled = false;
+      this.updateMenuRosterView();
+    });
+  }
+
+  updateMenuRosterView() {
+    const grid = document.getElementById('menu-roster-grid');
+    if (!grid) return;
+
+    // Use diffing or simple clear/redraw. For stability now, clear/redraw.
+    grid.innerHTML = '';
+    const searchTerm = (document.getElementById('menu-search')?.value || '').toLowerCase();
+    this._lastMenuItems = [];
+
+    this.npcs.forEach((npc, index) => {
+      const isUnlocked = this.unlockedNPCs.has(index);
+      const isHealed = this.healedNPCs.has(index);
+
+      // Filtering
+      if (searchTerm) {
+        if (!isUnlocked) return; // Don't search locked items
+        const content = `${npc.name} ${npc.origin} ${npc.crisis}`.toLowerCase();
+        if (!content.includes(searchTerm)) return;
+      }
+
+      this._lastMenuItems.push({ npc, index });
+
+      const card = document.createElement('div');
+      card.className = `npc-card ${isUnlocked ? 'unlocked' : 'locked'} ${isHealed ? 'healed' : ''}`;
+
+      // Delay-load animation
+      card.style.animationDelay = `${Math.min(index, 10) * 0.05}s`;
+
+      if (isUnlocked) {
+        card.innerHTML = `
+          <div class="card-thumb">
+            <img src="${npc.habitat}" alt="${npc.name}" loading="lazy">
+            ${isHealed ? '<div class="healed-badge">★</div>' : ''}
+          </div>
+          <div class="card-info">
+            <div class="card-name">${npc.name}</div>
+            <div class="card-meta">${npc.session}</div>
+          </div>
+        `;
+        card.onclick = () => {
+            this.audioPlayer.playSound('confirm');
+            this.startSession(index);
+        };
+      } else {
+        card.innerHTML = `
+          <div class="card-thumb locked-thumb">
+            <span>🔒</span>
+          </div>
+          <div class="card-info">
+            <div class="card-name">Locked</div>
+            <div class="card-meta">Session ${String(index + 1).padStart(2, '0')}</div>
+          </div>
+        `;
+        card.onclick = () => {
+            this.audioPlayer.playSound('error');
+            this.toast('Complete previous sessions to unlock.');
+        };
+      }
+
+      grid.appendChild(card);
+    });
+  }
+
   startSession(npcIndex) {
     this.currentNPC = this.npcs[npcIndex]; this.currentNPCIndex = npcIndex; this.turnCount = 0; this.currentNPCId = null;
     const thoughtBubble = document.getElementById('npc-thought-bubble'); if (thoughtBubble) thoughtBubble.style.display = 'none';
