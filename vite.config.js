@@ -1,8 +1,37 @@
 import { defineConfig } from 'vite';
+import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
   root: '.', // Project root
   base: './', // Relative base path for asset loading
+  plugins: [
+    VitePWA({
+      registerType: 'autoUpdate',
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,mp3}']
+      },
+      manifest: {
+        name: 'NPC Therapy',
+        short_name: 'NPC Therapy',
+        description: 'Digital Consciousness Clinic',
+        theme_color: '#1a1a2e',
+        background_color: '#1a1a2e',
+        display: 'standalone',
+        icons: [
+          {
+            src: 'images/icon-192.png',
+            sizes: '192x192',
+            type: 'image/png'
+          },
+          {
+            src: 'images/icon-512.png',
+            sizes: '512x512',
+            type: 'image/png'
+          }
+        ]
+      }
+    })
+  ],
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
@@ -12,9 +41,5 @@ export default defineConfig({
   server: {
     port: 3000,
     open: true,
-  },
-  // Ensure static assets (like mp3s in root) are served
-  publicDir: 'public', // Defaults to 'public', but our assets are in root.
-  // Vite serves root files automatically during dev, but for build, we might need to move them or configure copy.
-  // For now, let's keep it simple. We might need to move 'images', 'mp3s' to a 'public' folder later for cleaner structure.
+  }
 });
