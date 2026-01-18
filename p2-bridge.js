@@ -37,6 +37,9 @@ const PlayerTwoBridge = (window.PlayerTwoBridge = {
 
   // Function Handler
   functionHandler: null,
+
+  // Auth Configuration
+  clientId: null,
   
   /**
    * Initialize the bridge with authentication
@@ -45,6 +48,7 @@ const PlayerTwoBridge = (window.PlayerTwoBridge = {
   async init(config) {
     this.apiBase = config.apiBase || 'https://api.player2.game/v1';
     this.authToken = config.authToken;
+    this.clientId = config.clientId; // Should be added to config.js if needed
     this.maxRetries = config.environment?.maxRetries || 3;
     this.retryDelay = config.environment?.retryDelay || 1000;
     
@@ -92,6 +96,7 @@ const PlayerTwoBridge = (window.PlayerTwoBridge = {
    * Test authentication with joules endpoint
    */
   async testAuth() {
+    if (!this.authToken) return false;
     try {
       const response = await fetch(`${this.apiBase}/joules`, {
         headers: this.getHeaders()
@@ -109,6 +114,120 @@ const PlayerTwoBridge = (window.PlayerTwoBridge = {
       console.error('✗ Connection error:', error);
       return false;
     }
+  },
+
+  /**
+   * Initiate Device Code Authentication Flow
+   * @param {string} clientId - The Client ID
+   * @param {function} onCodeReceived - Callback (data) => void to show UI
+   * @returns {Promise<string|null>} The token if successful
+   */
+  async login(clientId, onCodeReceived) {
+    // 1. Try Localhost Login (Player2 App)
+    const localToken = await this.tryLocalLogin(clientId);
+    if (localToken) {
+      this.authToken = localToken;
+      return localToken;
+    }
+
+    // 2. Start Device Flow
+    try {
+      const initResponse = await fetch(`${this.apiBase}/login/device/new`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ client_id: clientId })
+      });
+
+      if (!initResponse.ok) throw new Error('Failed to initiate auth flow');
+
+      const authData = await initResponse.json();
+
+      // Notify UI to show code
+      if (onCodeReceived) {
+        onCodeReceived(authData);
+      }
+
+      // Poll for token
+      const token = await this.pollForToken(clientId, authData);
+      if (token) {
+        this.authToken = token;
+        return token;
+      }
+    } catch (e) {
+      console.error('Login failed:', e);
+    }
+    return null;
+  },
+
+  /**
+   * Try to login via local Player2 App
+   */
+  async tryLocalLogin(clientId) {
+    try {
+      const response = await fetch(`http://localhost:4315/v1/login/web/${clientId}`, {
+        method: 'POST',
+        headers: { 'Accept': 'application/json' }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data && data.p2Key) {
+          console.log('✓ Local Player2 App login successful');
+          return data.p2Key;
+        }
+      }
+    } catch (e) {
+      // Ignore errors, app probably not running
+    }
+    return null;
+  },
+
+  /**
+   * Poll for token
+   */
+  async pollForToken(clientId, authData) {
+    const url = `${this.apiBase}/login/device/token`;
+    // Use snake_case properties from authData
+    const interval = authData.interval || 5;
+    const expiresIn = authData.expires_in || 300;
+
+    const pollInterval = Math.max(1000, interval * 1000);
+    const deadline = Date.now() + (expiresIn * 1000);
+
+    while (Date.now() < deadline) {
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({
+            client_id: clientId,
+            device_code: authData.device_code,
+            grant_type: "urn:ietf:params:oauth:grant-type:device_code"
+          })
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.p2Key) return data.p2Key;
+          // Some implementations return snake_case
+          if (data.access_token) return data.access_token;
+        } else if (response.status === 400) {
+          // Check for slow_down or expired
+          // standard behavior: keep polling on pending
+        } else if (response.status === 429) {
+          // Slow down
+          await new Promise(r => setTimeout(r, 5000));
+        } else {
+          // Fatal error
+          return null;
+        }
+      } catch (e) {
+        // Network error, keep polling
+      }
+
+      await new Promise(r => setTimeout(r, pollInterval));
+    }
+    return null;
   },
   
   /**
