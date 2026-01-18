@@ -1925,7 +1925,23 @@ export class Game {
     this.sessionArchives = saveData.archives || {};
   }
 
-  autosave() { try { const snapshot = this.getSaveSnapshot(); localStorage.setItem('autosave_v1', JSON.stringify(snapshot)); } catch (_) {} }
+  autosave() {
+    if (this._autosavePending) return;
+    this._autosavePending = true;
+    const saveTask = () => {
+      this._autosavePending = false;
+      try {
+        const snapshot = this.getSaveSnapshot();
+        localStorage.setItem('autosave_v1', JSON.stringify(snapshot));
+      } catch (_) {}
+    };
+
+    if (window.requestIdleCallback) {
+      window.requestIdleCallback(saveTask, { timeout: 2000 });
+    } else {
+      setTimeout(saveTask, 100);
+    }
+  }
   loadAutosaveIfAvailable() {
     try { const raw = localStorage.getItem('autosave_v1'); if (!raw) return false; const data = JSON.parse(raw); this.applySaveData(data); this.loadNpcEdits(); this.startTime = Date.now() - (this.gameTime * 1000); this.startTimer(); this.updateStats(); this.renderCommunityCredits(); this.updateMenuRosterView(); this.updateTherapistState(); this.toast('Progress restored.'); this.startAutosave(); return true; } catch (_) { return false; }
   }
