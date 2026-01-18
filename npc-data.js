@@ -553,22 +553,42 @@ export const npcDatabase = [
     },
 ];
 
+// Cache for the merged NPC database to avoid redundant parsing and cloning
+let _cachedNpcDatabase = null;
+let _lastNpcEditsStr = null;
+
 // Merge saved edits from localStorage into the base database so updated info appears globally
 export function loadNpcDatabase() {
   try {
+    const editsStr = localStorage.getItem('npcEdits');
+
+    // Check if cache is valid
+    if (_cachedNpcDatabase && editsStr === _lastNpcEditsStr) {
+      // Return a clone to prevent mutation of the cached data by consumers
+      return structuredClone(_cachedNpcDatabase);
+    }
+
     const base = structuredClone(npcDatabase);
-    const edits = JSON.parse(localStorage.getItem('npcEdits') || '{}');
+    const edits = editsStr ? JSON.parse(editsStr) : {};
+
     const merged = base.map(n => {
       const e = edits[n.id];
       return e ? { ...n, ...e } : n;
     });
+
     // normalize image paths from ... to root /...
     const fixPath = (p) => (typeof p === 'string' ? p.replace(/^\/images\//, '/') : p);
-    return merged.map(n => ({
+    const result = merged.map(n => ({
       ...n,
       habitat: fixPath(n.habitat),
       officeImage: fixPath(n.officeImage),
     }));
+
+    // Update cache
+    _cachedNpcDatabase = result;
+    _lastNpcEditsStr = editsStr;
+
+    return structuredClone(result);
   } catch (_) {
     return npcDatabase.map(n => ({
       ...n,
