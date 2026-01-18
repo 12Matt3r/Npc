@@ -38,6 +38,13 @@ const PlayerTwoBridge = (window.PlayerTwoBridge = {
   // Function Handler
   functionHandler: null,
 
+  // STT State
+  sttSocket: null,
+  sttAudioContext: null,
+  sttStream: null,
+  sttProcessor: null,
+  sttCallbacks: null,
+
   // Auth Configuration
   clientId: null,
   
@@ -728,6 +735,169 @@ Guidelines for your responses:
       },
       neverRespondWithMessage: fn.neverRespondWithMessage || false
     }));
+  },
+
+  /**
+   * Start Speech-to-Text Session
+   * @param {Object} callbacks - { onTranscript, onError, onStart, onStop }
+   */
+  async startSTT(callbacks) {
+    if (this.sttSocket) this.stopSTT();
+    this.sttCallbacks = callbacks || {};
+
+    try {
+      if (!this.authToken && !this.clientId) {
+        // Allow unauthenticated usage if on specific domain, else fail
+        // For now, strict check or fallback
+      }
+
+      // 1. Get Audio Stream
+      this.sttStream = await navigator.mediaDevices.getUserMedia({ audio: {
+        channelCount: 1,
+        sampleRate: 44100
+      }});
+
+      // 2. Setup WebSocket
+      const wsProtocol = this.apiBase.startsWith('https') ? 'wss' : 'ws';
+      const wsBase = this.apiBase.replace(/^https?:\/\//, '');
+      let url = `${wsProtocol}://${wsBase}/stt/stream?sample_rate=44100&encoding=linear16&channels=1&vad_events=true&interim_results=true&punctuate=true&smart_format=true`;
+
+      if (this.authToken) {
+        url += `&token=${this.authToken}`;
+      }
+
+      this.sttSocket = new WebSocket(url);
+
+      this.sttSocket.onopen = () => {
+        console.log('Player2 STT Connected');
+        this.setupAudioProcessing();
+        if (this.sttCallbacks.onStart) this.sttCallbacks.onStart();
+
+        // Send configuration
+        this.sttSocket.send(JSON.stringify({
+          type: "configure",
+          data: {
+            sample_rate: 44100,
+            encoding: "linear16",
+            channels: 1,
+            interim_results: true,
+            vad_events: true,
+            punctuate: true
+          }
+        }));
+      };
+
+      this.sttSocket.onmessage = (event) => {
+        try {
+          const response = JSON.parse(event.data);
+          this.handleSTTMessage(response);
+        } catch (e) {
+          console.error('STT Parse Error:', e);
+        }
+      };
+
+      this.sttSocket.onerror = (e) => {
+        console.error('STT Socket Error:', e);
+        if (this.sttCallbacks.onError) this.sttCallbacks.onError(new Error("WebSocket Error"));
+      };
+
+      this.sttSocket.onclose = () => {
+        console.log('STT Socket Closed');
+        this.stopSTT(); // Cleanup
+        if (this.sttCallbacks.onStop) this.sttCallbacks.onStop();
+      };
+
+    } catch (e) {
+      console.error('Failed to start STT:', e);
+      if (this.sttCallbacks.onError) this.sttCallbacks.onError(e);
+    }
+  },
+
+  /**
+   * Stop Speech-to-Text Session
+   */
+  stopSTT() {
+    if (this.sttProcessor) {
+      this.sttProcessor.disconnect();
+      this.sttProcessor = null;
+    }
+    if (this.sttAudioContext) {
+      this.sttAudioContext.close();
+      this.sttAudioContext = null;
+    }
+    if (this.sttStream) {
+      this.sttStream.getTracks().forEach(t => t.stop());
+      this.sttStream = null;
+    }
+    if (this.sttSocket) {
+      if (this.sttSocket.readyState === WebSocket.OPEN) {
+        this.sttSocket.close();
+      }
+      this.sttSocket = null;
+    }
+  },
+
+  /**
+   * Setup Audio Context and Processor
+   */
+  setupAudioProcessing() {
+    this.sttAudioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 44100 });
+    const source = this.sttAudioContext.createMediaStreamSource(this.sttStream);
+
+    // Create ScriptProcessor (bufferSize, inputChannels, outputChannels)
+    this.sttProcessor = this.sttAudioContext.createScriptProcessor(4096, 1, 1);
+
+    this.sttProcessor.onaudioprocess = (e) => {
+      if (!this.sttSocket || this.sttSocket.readyState !== WebSocket.OPEN) return;
+
+      const inputData = e.inputBuffer.getChannelData(0);
+      const int16Data = this.convertFloat32ToInt16(inputData);
+
+      // Send raw bytes
+      this.sttSocket.send(int16Data);
+    };
+
+    source.connect(this.sttProcessor);
+    this.sttProcessor.connect(this.sttAudioContext.destination);
+  },
+
+  /**
+   * Convert Float32 Audio to Int16 PCM
+   */
+  convertFloat32ToInt16(float32Array) {
+    const int16Array = new Int16Array(float32Array.length);
+    for (let i = 0; i < float32Array.length; i++) {
+      const s = Math.max(-1, Math.min(1, float32Array[i]));
+      int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+    }
+    return int16Array;
+  },
+
+  /**
+   * Handle STT JSON Responses
+   */
+  handleSTTMessage(response) {
+    if (!response.type) return;
+
+    switch (response.type.toLowerCase()) {
+      case 'results':
+      case 'message':
+        if (response.data && response.data.channel && response.data.channel.alternatives) {
+          const alt = response.data.channel.alternatives[0];
+          if (alt && alt.transcript) {
+            const isFinal = response.data.is_final;
+            if (this.sttCallbacks.onTranscript) {
+              this.sttCallbacks.onTranscript(alt.transcript, isFinal);
+            }
+          }
+        }
+        break;
+      case 'error':
+        if (this.sttCallbacks.onError) {
+          this.sttCallbacks.onError(new Error(response.data?.message || "Unknown STT Error"));
+        }
+        break;
+    }
   }
 });
 

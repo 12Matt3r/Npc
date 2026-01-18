@@ -155,6 +155,12 @@ class SpeechRecognitionSystem {
   }
 
   start(onResult, onError, onStart) {
+    // Prefer Player2 STT if available and authenticated
+    if (PLAYER_TWO_AVAILABLE && (PlayerTwoBridge.authToken || PlayerTwoBridge.clientId)) {
+      this.usePlayerTwoSTT(onResult, onError, onStart);
+      return;
+    }
+
     if (!this.supported) {
       onError(new Error('Speech recognition not supported in this browser'));
       return;
@@ -201,11 +207,40 @@ class SpeechRecognitionSystem {
     }
   }
 
+  usePlayerTwoSTT(onResult, onError, onStart) {
+    if (this.isListening) this.stop();
+
+    this.isListening = true;
+    onStart();
+
+    PlayerTwoBridge.startSTT({
+      onTranscript: (text, isFinal) => {
+        // Player2 STT sends results. isFinal is true for committed text.
+        // We simulate interim/final behavior for the UI.
+        onResult(text, isFinal ? text : "");
+      },
+      onError: (err) => {
+        this.isListening = false;
+        onError(err);
+      },
+      onStart: () => {
+        // Already triggered onStart above, but could sync state here
+      },
+      onStop: () => {
+        this.isListening = false;
+      }
+    });
+  }
+
   stop() {
+    if (PLAYER_TWO_AVAILABLE && this.isListening) {
+      PlayerTwoBridge.stopSTT();
+    }
+
     if (this.recognition && this.isListening) {
       this.recognition.stop();
-      this.isListening = false;
     }
+    this.isListening = false;
   }
 }
 
