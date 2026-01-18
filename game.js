@@ -453,6 +453,54 @@ const game = {
     }
   },
 
+  /**
+   * Prompt user for Player Two Login
+   */
+  async promptForLogin() {
+    if (!PlayerTwoBridge.clientId) return;
+
+    console.log("Starting Player Two Authentication...");
+    const token = await PlayerTwoBridge.login(PlayerTwoBridge.clientId, (authData) => {
+      // Create a modal to show the code
+      const modal = document.createElement('div');
+      modal.className = 'modal active';
+      modal.id = 'auth-modal';
+      modal.innerHTML = `
+        <div class="modal-content" style="max-width: 500px; text-align: center;">
+          <div class="modal-header"><h2>Connect Player Two Account</h2></div>
+          <div class="modal-body">
+            <p>To enable AI features, please link your account:</p>
+            <p style="font-size: 1.2rem; margin: 1rem 0;">1. Go to: <a href="${authData.verification_uri_complete}" target="_blank" style="color: #64ffda;">${authData.verification_uri}</a></p>
+            <p style="font-size: 1.2rem; margin: 1rem 0;">2. Enter Code: <strong style="font-size: 1.5rem; color: #64ffda; border: 1px dashed #64ffda; padding: 0.2rem 0.5rem;">${authData.user_code}</strong></p>
+            <p><small>Waiting for confirmation...</small></p>
+            <div id="auth-spinner" class="spinner" style="margin: 1rem auto;"></div>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    });
+
+    if (token) {
+      const modal = document.getElementById('auth-modal');
+      if (modal) {
+        modal.innerHTML = `
+          <div class="modal-content" style="max-width: 500px; text-align: center;">
+            <div class="modal-header"><h2>Success!</h2></div>
+            <div class="modal-body">
+              <p>Account connected successfully.</p>
+            </div>
+          </div>
+        `;
+        setTimeout(() => modal.remove(), 2000);
+      }
+      this.toast("Player Two Account Connected!");
+    } else {
+      const modal = document.getElementById('auth-modal');
+      if (modal) modal.remove();
+      this.toast("Authentication failed or timed out.");
+    }
+  },
+
   // Fallback to browser TTS if Websim TTS fails
   async fallbackBrowserTTS(text) {
     if (!('speechSynthesis' in window)) {
@@ -566,6 +614,11 @@ const game = {
     this.renderCommunityCredits();
     this.npcs = loadNpcDatabase();
     
+    // Check Authentication
+    if (PLAYER_TWO_AVAILABLE && !PlayerTwoBridge.authToken && PlayerTwoBridge.clientId) {
+      this.promptForLogin();
+    }
+
     // Reorder NPCs first
     this.reorderAndRenumber();
     
