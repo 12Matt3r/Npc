@@ -26,16 +26,16 @@
                 <button class="continue-btn" id="continue-btn" style="display:none;" onclick="game.continueLastSession()">CONTINUE</button>
                 
                 <!-- Compact icon buttons -->
-                <button class="compact-btn" onclick="game.toggleFullscreen()" title="Full Screen">⛶</button>
-                <button class="compact-btn" onclick="game.openPathToSelf()" title="Path to Self">📻</button>
-                <button class="compact-btn" onclick="game.showConnectionMap()" title="Map">🗺️</button>
-                <button class="compact-btn" onclick="game.showJournal()" title="Journal">📔</button>
-                <button class="compact-btn" onclick="game.showCollectibles()" title="Collectibles">⭐</button>
+                <button class="compact-btn" onclick="game.toggleFullscreen()" title="Full Screen" aria-label="Toggle Fullscreen">⛶</button>
+                <button class="compact-btn" onclick="game.openPathToSelf()" title="Path to Self" aria-label="Open Path to Self">📻</button>
+                <button class="compact-btn" onclick="game.showConnectionMap()" title="Map" aria-label="Open Map">🗺️</button>
+                <button class="compact-btn" onclick="game.showJournal()" title="Journal" aria-label="Open Journal">📔</button>
+                <button class="compact-btn" onclick="game.showCollectibles()" title="Collectibles" aria-label="Open Collectibles">⭐</button>
             </div>
             
             <div class="header-right">
                 <!-- Hamburger Menu -->
-                <button class="hamburger-btn" id="hamburger-btn" onclick="game.toggleHamburgerMenu()">
+                <button class="hamburger-btn" id="hamburger-btn" onclick="game.toggleHamburgerMenu()" aria-label="Menu" aria-expanded="false" aria-controls="hamburger-dropdown">
                     <div class="hamburger-lines">
                         <span></span>
                         <span></span>
@@ -43,21 +43,24 @@
                     </div>
                 </button>
                 <!-- Hamburger Dropdown -->
-                <div class="hamburger-dropdown" id="hamburger-dropdown">
-                    <div class="dropdown-item" onclick="game.showLoadModal(); game.closeHamburgerMenu();">
+                <div class="hamburger-dropdown" id="hamburger-dropdown" role="menu">
+                    <div class="dropdown-item" role="menuitem" onclick="game.showLoadModal(); game.closeHamburgerMenu();">
                         <span class="item-icon">📂</span> Load
                     </div>
-                    <div class="dropdown-item" onclick="game.saveGame(); game.closeHamburgerMenu();">
+                    <div class="dropdown-item" role="menuitem" onclick="game.saveGame(); game.closeHamburgerMenu();">
                         <span class="item-icon">💾</span> Save
                     </div>
-                    <div class="dropdown-item" onclick="game.openSettings(); game.closeHamburgerMenu();">
+                    <div class="dropdown-item" role="menuitem" onclick="game.openSettings(); game.closeHamburgerMenu();">
                         <span class="item-icon">⚙️</span> Settings
                     </div>
-                    <div class="dropdown-item" onclick="game.showCredits(); game.closeHamburgerMenu();">
+                    <div class="dropdown-item" role="menuitem" onclick="game.showCredits(); game.closeHamburgerMenu();">
                         <span class="item-icon">📜</span> Credits
                     </div>
-                    <div class="dropdown-item" onclick="game.showCharacterCreator(); game.closeHamburgerMenu();">
+                    <div class="dropdown-item" role="menuitem" onclick="game.showCharacterCreator(); game.closeHamburgerMenu();">
                         <span class="item-icon">➕</span> Create NPC
+                    </div>
+                    <div class="dropdown-item" role="menuitem" onclick="game.showFeedback(); game.closeHamburgerMenu();">
+                        <span class="item-icon">💬</span> Feedback
                     </div>
                 </div>
             </div>
@@ -83,9 +86,9 @@
             <div class="cot-bar">
               <div id="cot-avatars" class="cot-avatars" title="Co‑therapy online"></div>
               <div class="cot-actions">
-                <button class="psf-btn" onclick="game.sendReaction('👍')">👍</button>
-                <button class="psf-btn" onclick="game.sendReaction('💡')">💡</button>
-                <button class="psf-btn" onclick="game.sendReaction('❤️')">❤️</button>
+                <button class="psf-btn" onclick="game.sendReaction('👍')" aria-label="Like">👍</button>
+                <button class="psf-btn" onclick="game.sendReaction('💡')" aria-label="Insight">💡</button>
+                <button class="psf-btn" onclick="game.sendReaction('❤️')" aria-label="Love">❤️</button>
               </div>
             </div>
             <div id="cot-insights" class="cot-insights" aria-live="polite" title="Shared session insights"></div>
@@ -122,6 +125,7 @@
                     <button id="conclude-session-btn" class="btn conclude-btn" style="display: none;">Attempt to Conclude Session</button>
                     <button id="skip-typing-btn" class="psf-btn skip-btn" title="Skip typing animation" style="position:absolute;top:8px;right:8px;">SKIP</button>
                 </div>
+        <canvas id="stt-visualizer" class="stt-visualizer" width="300" height="60" style="position:absolute; bottom:110px; right:20px; z-index:100; pointer-events:none; opacity:0.8; border-radius:8px;"></canvas>
             </div>
         </div>
     </div>
@@ -446,8 +450,8 @@
         <div class="psf-header">
             <span>Path to Self</span>
             <div style="display:flex;gap:0.4rem;align-items:center;">
-                <button id="psf-toggle-btn" class="psf-btn" title="Maximize">⤢</button>
-                <button id="psf-close-btn" class="psf-btn" title="Close">✕</button>
+                <button id="psf-toggle-btn" class="psf-btn" title="Maximize" aria-label="Maximize">⤢</button>
+                <button id="psf-close-btn" class="psf-btn" title="Close" aria-label="Close">✕</button>
             </div>
         </div>
         <iframe id="path-self-float-iframe" src="" allow="autoplay; encrypted-media" allowfullscreen></iframe>
@@ -495,7 +499,32 @@
           </ul>
           <p style="opacity:.75;">Tip: Click the patient portrait to view their dossier; use Settings to enable Voice (TTS) and adjust dialogue size.</p>
         </div>
+        <div class="modal-buttons">
+             <button class="btn" onclick="game.closeModal('help-modal'); game.showFeedback();">Report Issue / Feedback</button>
+        </div>
       </div>
+    </div>
+
+    <!-- Feedback Modal -->
+    <div id="feedback-modal" class="modal" aria-modal="true" role="dialog" aria-labelledby="feedback-title">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="feedback-title" class="modal-title">Feedback</h2>
+                <button class="btn" onclick="game.closeModal('feedback-modal')" aria-label="Close">CLOSE</button>
+            </div>
+            <div class="feedback-form">
+                <p>We value your input! Let us know if you found a bug or have a suggestion.</p>
+                <textarea id="feedback-input" class="modal-input" placeholder="Describe your issue or idea here..." style="min-height: 100px;"></textarea>
+                <div class="feedback-type">
+                    <label><input type="radio" name="feedback-type" value="bug" checked> Bug</label>
+                    <label><input type="radio" name="feedback-type" value="feature"> Feature</label>
+                    <label><input type="radio" name="feedback-type" value="other"> Other</label>
+                </div>
+            </div>
+            <div class="modal-buttons">
+                <button class="btn" onclick="game.submitFeedback()">SUBMIT</button>
+            </div>
+        </div>
     </div>
 
     <!-- Permission Request Modal -->

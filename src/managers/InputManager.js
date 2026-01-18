@@ -21,10 +21,10 @@ export class SpeechRecognitionSystem {
     this.recognition.maxAlternatives = 1;
   }
 
-  start(onResult, onError, onStart) {
+  start(onResult, onError, onStart, onAudioContext) {
     // Prefer Player2 STT if available and authenticated
     if (PLAYER_TWO_AVAILABLE && (window.PlayerTwoBridge.authToken || window.PlayerTwoBridge.clientId)) {
-      this.usePlayerTwoSTT(onResult, onError, onStart);
+      this.usePlayerTwoSTT(onResult, onError, onStart, onAudioContext);
       return;
     }
 
@@ -74,7 +74,7 @@ export class SpeechRecognitionSystem {
     }
   }
 
-  usePlayerTwoSTT(onResult, onError, onStart) {
+  usePlayerTwoSTT(onResult, onError, onStart, onAudioContext) {
     if (this.isListening) this.stop();
 
     this.isListening = true;
@@ -95,6 +95,9 @@ export class SpeechRecognitionSystem {
       },
       onStop: () => {
         this.isListening = false;
+      },
+      onAudioContextReady: (ctx, stream) => {
+        if (onAudioContext) onAudioContext(ctx, stream);
       }
     });
   }
