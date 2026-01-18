@@ -34,6 +34,9 @@ const PlayerTwoBridge = (window.PlayerTwoBridge = {
   processing: false,
   maxRetries: 3,
   retryDelay: 1000,
+
+  // Function Handler
+  functionHandler: null,
   
   /**
    * Initialize the bridge with authentication
@@ -123,7 +126,7 @@ const PlayerTwoBridge = (window.PlayerTwoBridge = {
         speed: options.ttsSpeed || 0.95,
         audio_format: options.audioFormat || 'mp3'
       },
-      commands: null,
+      commands: options.functions ? this.serializeFunctions(options.functions) : null,
       keep_game_state: options.keepGameState !== false
     };
     
@@ -253,6 +256,10 @@ Guidelines for your responses:
                   if (data.error) {
                     onError(data.error);
                   } else {
+                    // Check for commands in the response
+                    if (data.command && Array.isArray(data.command)) {
+                      this.handleFunctionCalls(data.command, data.npc_id);
+                    }
                     onResponse(data);
                   }
                 } catch (e) {
@@ -549,6 +556,59 @@ Guidelines for your responses:
    */
   getAllNPCs() {
     return Array.from(this.activeNPCs.values());
+  },
+
+  /**
+   * Register a callback for function calls
+   */
+  registerFunctionHandler(handler) {
+    this.functionHandler = handler;
+  },
+
+  /**
+   * Handle function calls from NPC response
+   */
+  handleFunctionCalls(commands, npcId) {
+    if (!this.functionHandler) return;
+
+    commands.forEach(cmd => {
+      try {
+        let args = cmd.arguments;
+        // If arguments is a string (JSON), parse it
+        if (typeof args === 'string') {
+          try {
+            args = JSON.parse(args);
+          } catch (e) {
+            console.warn('Failed to parse function arguments JSON:', e);
+          }
+        }
+
+        this.functionHandler({
+          name: cmd.name,
+          arguments: args,
+          npcId: npcId
+        });
+      } catch (e) {
+        console.error('Error handling NPC function call:', e);
+      }
+    });
+  },
+
+  /**
+   * Serialize functions to Player Two format
+   */
+  serializeFunctions(functions) {
+    if (!Array.isArray(functions)) return null;
+    return functions.map(fn => ({
+      name: fn.name,
+      description: fn.description,
+      parameters: {
+        type: 'object',
+        properties: fn.parameters || {},
+        required: fn.required || []
+      },
+      neverRespondWithMessage: fn.neverRespondWithMessage || false
+    }));
   }
 });
 
