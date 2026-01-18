@@ -1874,21 +1874,82 @@ export class Game {
   }
 
   updateCommandPaletteList() {
-    const list = document.getElementById('cmdk-list'); const q = (document.getElementById('cmdk-input')?.value || '').toLowerCase(); if (!list) return;
-    list.innerHTML = '';
-    const results = this.npcs.map((npc, index) => ({ npc, index })).filter(({ npc, index }) => {
-      if (!this.unlockedNPCs.has(index)) return false;
-      if (!q) return true;
+    const list = document.getElementById('cmdk-list');
+    const q = (document.getElementById('cmdk-input')?.value || '').toLowerCase();
+    if (!list) return;
+
+    // Optimized filtering: single pass, no intermediate arrays
+    const results = [];
+    const maxResults = 30;
+
+    for (let i = 0; i < this.npcs.length; i++) {
+      if (results.length >= maxResults) break;
+      if (!this.unlockedNPCs.has(i)) continue;
+
+      const npc = this.npcs[i];
+      if (!q) {
+        results.push({ npc, index: i });
+        continue;
+      }
+
       const hay = `${npc.name} ${npc.origin} ${npc.crisis}`.toLowerCase();
-      return hay.includes(q);
-    }).slice(0, 30);
-    if (results.length === 0) { const empty = document.createElement('div'); empty.className = 'cmdk-item'; empty.innerHTML = '<div></div><div class="cmdk-meta"><div class="cmdk-name">No results</div><div class="cmdk-sub">Try different keywords.</div></div>'; list.appendChild(empty); return; }
+      if (hay.includes(q)) {
+        results.push({ npc, index: i });
+      }
+    }
+
+    if (results.length === 0) {
+      let empty = list.firstElementChild;
+      if (!empty || !empty.classList.contains('empty-state')) {
+        list.innerHTML = '';
+        empty = document.createElement('div');
+        empty.className = 'cmdk-item empty-state';
+        empty.innerHTML = '<div></div><div class="cmdk-meta"><div class="cmdk-name">No results</div><div class="cmdk-sub">Try different keywords.</div></div>';
+        list.appendChild(empty);
+      }
+      return;
+    }
+
+    if (list.firstElementChild && list.firstElementChild.classList.contains('empty-state')) {
+      list.innerHTML = '';
+    }
+
+    const children = list.children;
+    const existingCount = children.length;
+
     results.forEach(({ npc, index }, i) => {
-      const item = document.createElement('div'); item.className = `cmdk-item${i===0?' active':''}`; item.setAttribute('role','option'); item.setAttribute('data-index', String(index));
-      item.innerHTML = `<img class="cmdk-thumb" src="${npc.habitat}" alt=""><div class="cmdk-meta"><div class="cmdk-name">${npc.name}</div><div class="cmdk-sub">${npc.session} • ${npc.origin}</div></div>`;
-      item.addEventListener('click', () => { this.closeCommandPalette(); this.startSession(index); });
-      list.appendChild(item);
+      let item;
+      if (i < existingCount) {
+        item = children[i];
+      } else {
+        item = document.createElement('div');
+        list.appendChild(item);
+        // Use a persistent handler that reads from dataset
+        item.addEventListener('click', (e) => {
+          const idx = parseInt(e.currentTarget.dataset.index, 10);
+          if (!isNaN(idx)) {
+            this.closeCommandPalette();
+            this.startSession(idx);
+          }
+        });
+      }
+
+      item.className = `cmdk-item${i === 0 ? ' active' : ''}`;
+      item.setAttribute('role', 'option');
+      item.dataset.index = String(index);
+
+      const newHTML = `<img class="cmdk-thumb" src="${npc.habitat}" alt=""><div class="cmdk-meta"><div class="cmdk-name">${npc.name}</div><div class="cmdk-sub">${npc.session} • ${npc.origin}</div></div>`;
+
+      // Simple diff to avoid layout thrashing if content hasn't changed
+      if (item.innerHTML !== newHTML) {
+        item.innerHTML = newHTML;
+      }
     });
+
+    // Remove excess elements
+    while (list.children.length > results.length) {
+      list.removeChild(list.lastChild);
+    }
   }
 
   handleCmdkKeydown(e) {
