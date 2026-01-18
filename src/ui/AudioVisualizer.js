@@ -3,6 +3,7 @@ export class AudioVisualizer {
     this.canvas = document.getElementById(canvasId);
     this.ctx = this.canvas ? this.canvas.getContext('2d') : null;
     this.analyser = null;
+    this.source = null;
     this.dataArray = null;
     this.animationId = null;
     this.isActive = false;
@@ -11,10 +12,12 @@ export class AudioVisualizer {
   attachToContext(audioContext, stream) {
     if (!this.canvas || !audioContext || !stream) return;
 
+    if (this.source) { try { this.source.disconnect(); } catch(e){} }
+
     this.analyser = audioContext.createAnalyser();
     this.analyser.fftSize = 256;
-    const source = audioContext.createMediaStreamSource(stream);
-    source.connect(this.analyser);
+    this.source = audioContext.createMediaStreamSource(stream);
+    this.source.connect(this.analyser);
     // Do not connect to destination (speakers) to avoid feedback loop
 
     this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
@@ -51,6 +54,7 @@ export class AudioVisualizer {
 
   stop() {
     this.isActive = false;
+    if (this.source) { try { this.source.disconnect(); } catch(e){} this.source = null; }
     if (this.animationId) cancelAnimationFrame(this.animationId);
     if (this.ctx) this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
   }
