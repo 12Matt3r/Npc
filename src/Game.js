@@ -20,8 +20,13 @@ import {
   attachImageLoadingEffects
 } from './utils/helpers.js';
 
+/**
+ * Main Game Controller
+ * Manages game state, NPC interactions, and SDK integration.
+ */
 export class Game {
   constructor() {
+    /** @type {Array<Object>} List of NPC definitions */
     this.npcs = [];
     this.currentNPC = null;
     this.currentNPCId = null;
