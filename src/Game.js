@@ -1544,16 +1544,57 @@ export class Game {
   renderSharedInsights() {
     const box = document.getElementById('cot-insights');
     if (!box) return;
-    box.innerHTML = '';
+
     const npcId = this.currentNPC?.id;
     const all = (this.room && this.room.roomState && this.room.roomState.sharedInsights) || {};
     const entries = npcId ? all[npcId] : null;
-    if (!entries) return;
-    Object.keys(entries).slice(-8).forEach((k) => {
+
+    if (!entries) {
+      if (box.childElementCount > 0) box.innerHTML = '';
+      return;
+    }
+
+    const keys = Object.keys(entries).slice(-8);
+    const validKeys = new Set(keys);
+
+    // Remove old elements
+    Array.from(box.children).forEach(child => {
+      if (!validKeys.has(child.dataset.key)) {
+        child.remove();
+      }
+    });
+
+    // Add new elements or reorder
+    keys.forEach((k) => {
+      let chip = null;
+      // Safer lookup than querySelector with user input
+      for (let i = 0; i < box.children.length; i++) {
+        if (box.children[i].dataset.key === k) {
+          chip = box.children[i];
+          break;
+        }
+      }
+
       const it = entries[k];
-      const chip = document.createElement('div'); chip.className = 'insight-chip'; chip.textContent = it.text;
-      const by = document.createElement('span'); by.className = 'by'; by.textContent = `— ${it.author || 'Peer'}`;
-      chip.appendChild(by); box.appendChild(chip);
+      if (chip) {
+        // Update content if changed (though rare for this data type)
+        if (chip.firstChild.textContent !== it.text) chip.firstChild.textContent = it.text;
+        const by = chip.querySelector('.by');
+        if (by && by.textContent !== `— ${it.author || 'Peer'}`) by.textContent = `— ${it.author || 'Peer'}`;
+
+        box.appendChild(chip); // Ensure order
+        return;
+      }
+
+      chip = document.createElement('div');
+      chip.className = 'insight-chip';
+      chip.dataset.key = k;
+      chip.textContent = it.text;
+      const by = document.createElement('span');
+      by.className = 'by';
+      by.textContent = `— ${it.author || 'Peer'}`;
+      chip.appendChild(by);
+      box.appendChild(chip);
     });
   }
 
