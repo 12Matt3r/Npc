@@ -262,8 +262,8 @@ export class Game {
           if (match) this.startSession(match.index);
         }
       });
-      this.scheduleUpdateMenuRosterView();
     }
+    this.scheduleUpdateMenuRosterView();
     this.ttsAudio = new Audio(); this.ttsAudio.volume = 1.0;
     const debouncedMap = debounce(() => this.scheduleRenderConnectionMap(), 150);
     window.addEventListener('resize', debouncedMap);
