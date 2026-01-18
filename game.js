@@ -451,7 +451,13 @@ const game = {
 
   // Optimized: unified, cached image generation (Player Two compatible)
   async generateImage(prompt, opts = {}) {
-    // Image generation is disabled; return a neutral fallback image.
+    if (PLAYER_TWO_AVAILABLE && (PlayerTwoBridge.authToken || PlayerTwoBridge.clientId)) {
+      const { width, height } = opts; // Extract dimensions if present
+      const image = await PlayerTwoBridge.generateImage(prompt, width, height);
+      if (image) return image;
+    }
+
+    // Fallback if API unavailable or fails
     return '/therapy_office.png';
   },
 
