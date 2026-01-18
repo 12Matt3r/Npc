@@ -859,6 +859,11 @@ Guidelines for your responses:
 
     source.connect(this.sttProcessor);
     this.sttProcessor.connect(this.sttAudioContext.destination);
+
+    // Visualizer Hook
+    if (this.sttCallbacks.onAudioContextReady) {
+      this.sttCallbacks.onAudioContextReady(this.sttAudioContext, this.sttStream);
+    }
   },
 
   /**

@@ -11,6 +11,9 @@ import {
 import { AudioPlayer, WebSpeechTTS } from './managers/AudioManager.js';
 import { SpeechRecognitionSystem } from './managers/InputManager.js';
 import { UIManager } from './managers/UIManager.js';
+import { AudioVisualizer } from './ui/AudioVisualizer.js';
+import { ResourceManager } from './managers/ResourceManager.js';
+import { MapRenderer } from './ui/MapRenderer.js';
 import {
   sleep,
   withTimeout,
@@ -86,8 +89,12 @@ export class Game {
     this.permissionRequestInProgress = false;
     this.textOnlyMode = false;
     this._lastMenuItems = [];
+    this.sessionArchives = {}; // Stores past session transcripts by NPC ID
 
     this.uiManager = new UIManager(this);
+    this.resourceManager = new ResourceManager();
+    this.mapRenderer = null; // Initialized on demand
+    this.audioVisualizer = new AudioVisualizer('stt-visualizer');
   }
 
   showLoader() { this.uiManager.showLoader(); }
@@ -323,12 +330,15 @@ export class Game {
     this.speechRecognition.start(
       (interimTranscript, finalTranscript) => { if (interimTranscript) { input.value = interimTranscript; micButton.style.background = '#e74c3c'; micButton.innerHTML = '🔴'; } },
       (error) => { console.warn('Speech recognition error:', error); this.toast('Speech recognition error: ' + error.message); this.stopSpeechRecognition(); },
-      () => { this.speechListening = true; input.focus(); micButton.style.background = '#e74c3c'; micButton.innerHTML = '🔴'; this.toast('Listening... Speak now'); }
+      () => { this.speechListening = true; input.focus(); micButton.style.background = '#e74c3c'; micButton.innerHTML = '🔴'; this.toast('Listening... Speak now'); },
+      (ctx, stream) => { this.audioVisualizer.attachToContext(ctx, stream); }
     );
   }
 
   stopSpeechRecognition() {
-    this.speechRecognition.stop(); this.speechListening = false;
+    this.speechRecognition.stop();
+    this.audioVisualizer.stop();
+    this.speechListening = false;
     const micButton = document.getElementById('speech-recognition-btn');
     if (micButton) { micButton.style.background = '#444'; micButton.innerHTML = '🎤'; }
   }
@@ -663,8 +673,24 @@ export class Game {
       }
     } catch (error) { console.error("Session analysis failed:", error); this.toast("Could not analyze session."); }
     finally {
+      this.archiveSession();
       if (PLAYER_TWO_AVAILABLE) { this.killCurrentNPC().catch(err => { console.warn('Failed to kill NPC on Player Two:', err); }); }
       this.exitSession();
+    }
+  }
+
+  archiveSession() {
+    if (!this.currentNPC || !this.conversationHistory.length) return;
+    // Filter out system messages to save space
+    const cleanHistory = this.conversationHistory
+      .filter(m => m.role !== 'system')
+      .map(m => ({ role: m.role, content: m.content, timestamp: Date.now() }));
+
+    if (cleanHistory.length > 0) {
+      this.sessionArchives[this.currentNPC.id] = {
+        date: new Date().toISOString(),
+        messages: cleanHistory
+      };
     }
   }
 
@@ -871,32 +897,43 @@ export class Game {
   }
 
   renderConnectionMap() {
-    const canvas = document.getElementById('map-canvas'); const ctx = canvas.getContext('2d');
+    const canvas = document.getElementById('map-canvas');
+    if (!canvas) return;
+
+    if (!this.mapRenderer) {
+      this.mapRenderer = new MapRenderer(canvas);
+    }
+
     const dpr = Math.max(1, Math.floor(window.devicePixelRatio || 1));
     const cssW = canvas.offsetWidth, cssH = canvas.offsetHeight;
-    if (!cssW || !cssH) { requestAnimationFrame(() => this.renderConnectionMap()); return; }
+
+    if (!cssW || !cssH) {
+      requestAnimationFrame(() => this.renderConnectionMap());
+      return;
+    }
+
     const sig = JSON.stringify({ w: cssW, h: cssH, z: this.mapState.zoom, x: this.mapState.panX, y: this.mapState.panY, uV: this.unlockedVersion, hV: this.healedVersion, dpr });
     if (sig === this.lastRenderSignature) return;
     this.lastRenderSignature = sig;
-    canvas.width = cssW * dpr; canvas.height = cssH * dpr; canvas.style.width = cssW + 'px'; canvas.style.height = cssH + 'px';
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, cssW, cssH);
+
+    this.mapRenderer.resize(cssW, cssH, dpr);
     this.mapState.cssW = cssW; this.mapState.cssH = cssH;
-    const centerX = cssW / 2, centerY = cssH / 2, radius = Math.min(cssW, cssH) * 0.4;
-    ctx.save(); ctx.translate(centerX, centerY); ctx.scale(this.mapState.zoom, this.mapState.zoom); ctx.translate(-centerX + this.mapState.panX, -centerY + this.mapState.panY);
+
     const unlockedNodes = this.npcs.map((npc,i)=>({ npc, index:i })).filter(item=>this.unlockedNPCs.has(item.index));
-    const nodePositions = unlockedNodes.map((item, i) => {
+    // Simplified node position logic for now to match renderer expectation
+    // Actually MapRenderer calculates center itself. Let's just pass nodes.
+    // Re-calculating positions here to keep state consistent with hit-testing logic in initMapControls
+    const centerX = cssW / 2, centerY = cssH / 2, radius = Math.min(cssW, cssH) * 0.4;
+     const calculatedNodes = unlockedNodes.map((item, i) => {
       const angle = (i / Math.max(1, unlockedNodes.length)) * Math.PI * 2;
       return { x: centerX + Math.cos(angle) * radius, y: centerY + Math.sin(angle) * radius, npc: item.npc, index: item.index, healed: this.healedNPCs.has(item.index) };
     });
-    this.mapState.nodes = nodePositions;
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)'; ctx.lineWidth = 1;
-    ctx.beginPath();
-    nodePositions.forEach((pos1, i) => { nodePositions.forEach((pos2, j) => {
-      if (i < j && (pos1.index + pos2.index) % 5 < 2) { ctx.moveTo(pos1.x, pos1.y); ctx.lineTo(pos2.x, pos2.y); }
-    });});
-    ctx.stroke();
-    nodePositions.forEach(pos => { ctx.beginPath(); ctx.arc(pos.x, pos.y, 6, 0, Math.PI * 2); ctx.fillStyle = pos.healed ? '#4CAF50' : '#fff'; ctx.fill(); });
-    ctx.restore();
+
+    this.mapState.nodes = calculatedNodes;
+    this.mapRenderer.render(calculatedNodes, this.mapState);
+
+    // Preload assets for neighbors of healed nodes or center focus
+    this.resourceManager.preloadNpcAssets(this.npcs, 0);
   }
 
   scheduleRenderConnectionMap() {
@@ -965,8 +1002,55 @@ export class Game {
 
   returnToGame() { this.showScreen(this.previousScreen || 'journal'); }
 
+  viewTranscript(npcId) {
+    const archive = this.sessionArchives[npcId];
+    if (!archive) return;
+
+    // Create or reuse a modal for the transcript
+    let modal = document.getElementById('transcript-modal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'transcript-modal';
+      modal.className = 'modal';
+      modal.innerHTML = `
+        <div class="modal-content large-modal">
+          <span class="close-btn" onclick="document.getElementById('transcript-modal').classList.remove('active')">&times;</span>
+          <h2>Session Transcript</h2>
+          <div id="transcript-body" class="transcript-container"></div>
+          <div class="modal-actions">
+            <button class="btn" onclick="document.getElementById('transcript-modal').classList.remove('active')">Close</button>
+          </div>
+        </div>`;
+      document.body.appendChild(modal);
+    }
+
+    const container = modal.querySelector('#transcript-body');
+    const npc = this.npcs.find(n => n.id === npcId);
+
+    let html = `<div class="transcript-header"><h3>Patient: ${npc ? npc.name : npcId}</h3><p>Date: ${new Date(archive.date).toLocaleString()}</p></div><hr/>`;
+
+    archive.messages.forEach(msg => {
+      const roleClass = msg.role === 'assistant' ? 'npc-msg' : 'therapist-msg';
+      const label = msg.role === 'assistant' ? (npc ? npc.name : 'Patient') : 'Therapist';
+      html += `<div class="transcript-line ${roleClass}"><strong>${label}:</strong> ${msg.content}</div>`;
+    });
+
+    container.innerHTML = html;
+    modal.classList.add('active');
+  }
+
   saveGame() {
-    const saveData = { healed: Array.from(this.healedNPCs), unlocked: Array.from(this.unlockedNPCs), mentalState: this.therapistMentalState, collectibles: this.collectibles, time: this.gameTime, award: this.chromaAwardGiven, credits: this.communityCredits, npcNotes: this.npcNotes };
+    const saveData = {
+      healed: Array.from(this.healedNPCs),
+      unlocked: Array.from(this.unlockedNPCs),
+      mentalState: this.therapistMentalState,
+      collectibles: this.collectibles,
+      time: this.gameTime,
+      award: this.chromaAwardGiven,
+      credits: this.communityCredits,
+      npcNotes: this.npcNotes,
+      archives: this.sessionArchives
+    };
     const saveCode = btoa(JSON.stringify(saveData));
     document.getElementById('save-code').value = saveCode;
     document.getElementById('save-modal').classList.add('active');
@@ -983,14 +1067,44 @@ export class Game {
 
   showLoadModal() { document.getElementById('load-modal').classList.add('active'); }
 
-  toggleHamburgerMenu() { const dropdown = document.getElementById('hamburger-dropdown'); if (dropdown) { dropdown.classList.toggle('active'); } }
+  toggleHamburgerMenu() {
+    const dropdown = document.getElementById('hamburger-dropdown');
+    const btn = document.getElementById('hamburger-btn');
+    if (dropdown) {
+      const isActive = dropdown.classList.toggle('active');
+      if (btn) btn.setAttribute('aria-expanded', isActive);
+    }
+  }
 
   toggleFullscreen() {
     if (!document.fullscreenElement) { document.documentElement.requestFullscreen().catch(err => console.log('Fullscreen error:', err.message)); }
     else if (document.exitFullscreen) { document.exitFullscreen(); }
   }
 
-  closeHamburgerMenu() { const dropdown = document.getElementById('hamburger-dropdown'); if (dropdown) { dropdown.classList.remove('active'); } }
+  closeHamburgerMenu() {
+    const dropdown = document.getElementById('hamburger-dropdown');
+    const btn = document.getElementById('hamburger-btn');
+    if (dropdown) { dropdown.classList.remove('active'); }
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+  }
+
+  showFeedback() {
+    document.getElementById('feedback-modal').classList.add('active');
+    setTimeout(() => document.getElementById('feedback-input').focus(), 100);
+  }
+
+  submitFeedback() {
+    const input = document.getElementById('feedback-input');
+    const text = input.value.trim();
+    if (!text) { this.toast('Please describe your feedback.'); return; }
+
+    // In a real app, this would send data to a backend
+    console.log(`Feedback submitted: ${text} [Type: ${document.querySelector('input[name="feedback-type"]:checked')?.value}]`);
+
+    this.toast('Feedback received. Thank you!');
+    input.value = '';
+    this.closeModal('feedback-modal');
+  }
 
   loadGame() {
     try {
@@ -1055,7 +1169,10 @@ export class Game {
       let content;
       if (isUnlocked) {
         const thumb = `<img src="${npc.habitat}" alt="${npc.name}" class="journal-thumb" />`;
-        content = `${thumb}<h3>${npc.name} (${npc.session})</h3><p><strong>Origin:</strong> ${npc.origin}</p><p><strong>Status:</strong> ${isHealed ? 'Healed' : 'Session Available'}</p><p><em>Crisis: ${npc.crisis}</em></p>${noteLine}`;
+        const hasTranscript = this.sessionArchives[npc.id];
+        const transcriptBtn = hasTranscript ? `<button class="btn small-btn" onclick="game.viewTranscript('${npc.id}')" title="View archived session">📜 View Transcript</button>` : '';
+
+        content = `${thumb}<h3>${npc.name} (${npc.session})</h3><p><strong>Origin:</strong> ${npc.origin}</p><p><strong>Status:</strong> ${isHealed ? 'Healed' : 'Session Available'}</p><p><em>Crisis: ${npc.crisis}</em></p>${noteLine}<div style="margin-top:10px;">${transcriptBtn}</div>`;
       } else { content = `<h3>LOCKED // SESSION ${String(index + 1).padStart(2, '0')}</h3><p>Heal more patients to unlock this file.</p>`; }
       entry.innerHTML = content;
       frag.appendChild(entry);
@@ -1486,7 +1603,7 @@ export class Game {
     document.getElementById('npc-edit-modal').classList.add('active');
     const saveBtn = document.getElementById('npc-edit-save-btn');
     saveBtn.onclick = () => this.saveNpcEdit();
-  },
+  }
 
   async saveNpcEdit() {
     const idx = this.editingNpcIndex; if (idx == null) return;
@@ -1517,7 +1634,7 @@ export class Game {
       }
       this.toast('Character saved.');
     } finally { this.hideLoader(); }
-  },
+  }
 
   persistNpcEdit(npc) {
     try {
@@ -1527,13 +1644,13 @@ export class Game {
       localStorage.setItem('npcEdits', JSON.stringify(edits));
       this.updateMenuRosterView(); this.populateFullJournal(); this.npcEditsVersion++;
     } catch (error) { console.warn('NPC Therapy: Error saving NPC edit:', error); this.toast('Error saving edit. Please try again.'); }
-  },
+  }
 
   refreshNpcEdits() {
     console.log('NPC Therapy: Manually refreshing NPC edits...');
     this.loadNpcEdits(); this.updateMenuRosterView(); this.populateFullJournal();
     this.toast('NPC edits refreshed. Check console for details.');
-  },
+  }
 
   loadNpcEdits() {
     try {
@@ -1551,7 +1668,7 @@ export class Game {
       });
       console.log('NPC Therapy: NPC edits loaded successfully'); this.npcEditsVersion++;
     } catch (error) { console.warn('NPC Therapy: Error loading NPC edits:', error); }
-  },
+  }
 
   loadNpcEditsFromRoomState() {
     try {
@@ -1574,7 +1691,7 @@ export class Game {
       }
       this.npcEditsVersion++;
     } catch (error) { console.warn('NPC Therapy: Error loading NPC edits from room state:', error); }
-  },
+  }
 
   setupPermissionModalEvents() {
     const allowBtn = document.getElementById('permission-allow-btn');
@@ -1696,7 +1813,17 @@ export class Game {
   openHelp() { document.getElementById('help-modal').classList.add('active'); }
   closeHelp() { document.getElementById('help-modal').classList.remove('active'); }
 
-  getSaveSnapshot() { return { healed: Array.from(this.healedNPCs), unlocked: Array.from(this.unlockedNPCs), mentalState: this.therapistMentalState, collectibles: this.collectibles, time: this.gameTime, award: this.chromaAwardGiven, credits: this.communityCredits, npcNotes: this.npcNotes }; }
+  getSaveSnapshot() { return {
+    healed: Array.from(this.healedNPCs),
+    unlocked: Array.from(this.unlockedNPCs),
+    mentalState: this.therapistMentalState,
+    collectibles: this.collectibles,
+    time: this.gameTime,
+    award: this.chromaAwardGiven,
+    credits: this.communityCredits,
+    npcNotes: this.npcNotes,
+    archives: this.sessionArchives
+  }; }
 
   applySaveData(saveData) {
     this.healedNPCs = new Set(saveData.healed || []); this.healedVersion++;
@@ -1705,6 +1832,7 @@ export class Game {
     this.therapistMentalState = saveData.mentalState || 0; this.collectibles = saveData.collectibles || [];
     this.gameTime = saveData.time || 0; this.chromaAwardGiven = saveData.award || false;
     this.communityCredits = saveData.credits || []; this.npcNotes = saveData.npcNotes || {};
+    this.sessionArchives = saveData.archives || {};
   }
 
   autosave() { try { const snapshot = this.getSaveSnapshot(); localStorage.setItem('autosave_v1', JSON.stringify(snapshot)); } catch (_) {} }
