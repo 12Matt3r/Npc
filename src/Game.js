@@ -1264,21 +1264,70 @@ export class Game {
 
   renderCommunityCredits() {
     const container = document.getElementById('community-credits-container');
-    container.innerHTML = '';
+    const existingChildren = Array.from(container.children);
+
+    // Resize container children to match data length
+    while (existingChildren.length > this.communityCredits.length) {
+      container.removeChild(existingChildren.pop());
+    }
+
     this.communityCredits.forEach((item, index) => {
-      const itemEl = document.createElement('div');
-      itemEl.className = 'credit-item';
-      itemEl.draggable = this.creditsEditMode;
-      itemEl.dataset.index = index;
+      let itemEl = existingChildren[index];
+      const isNew = !itemEl;
+
+      if (isNew) {
+        itemEl = document.createElement('div');
+        itemEl.className = 'credit-item';
+        container.appendChild(itemEl);
+      }
+
+      // Update attributes if changed
+      if (itemEl.draggable !== this.creditsEditMode) itemEl.draggable = this.creditsEditMode;
+      if (itemEl.dataset.index !== String(index)) itemEl.dataset.index = index;
+
+      // Construct content string
       const content = `<img src="${item.src}" alt="Community Credit Image"><div class="credit-item-controls"><button class="credit-control-btn" title="Edit" onclick="game.editCreditItem(${index})">✎</button><button class="credit-control-btn" title="Delete" onclick="game.deleteCreditItem(${index})">🗑</button></div>`;
-      if (item.link) {
-        const linkEl = document.createElement('a');
-        linkEl.href = item.link; linkEl.target = '_blank'; linkEl.rel = 'noopener noreferrer';
-        linkEl.innerHTML = content;
-        itemEl.appendChild(linkEl);
-      } else { itemEl.innerHTML = content; }
-      container.appendChild(itemEl);
+
+      // Determine if we need to rebuild the inner structure
+      // We rebuild if it's new, or if the structure type changed (link vs no-link)
+      const hasLink = !!item.link;
+      const currentHasLink = itemEl.firstElementChild && itemEl.firstElementChild.tagName === 'A';
+
+      if (isNew || hasLink !== currentHasLink) {
+        // Full rebuild of inner content
+        if (hasLink) {
+          const linkEl = document.createElement('a');
+          linkEl.href = item.link; linkEl.target = '_blank'; linkEl.rel = 'noopener noreferrer';
+          linkEl.innerHTML = content;
+          itemEl.innerHTML = '';
+          itemEl.appendChild(linkEl);
+        } else {
+          itemEl.innerHTML = content;
+        }
+      } else {
+        // Targeted updates to avoid innerHTML if structure matches
+        if (hasLink) {
+          const linkEl = itemEl.firstElementChild;
+          if (linkEl.href !== item.link) linkEl.href = item.link;
+          const img = linkEl.querySelector('img');
+          if (img && img.src !== item.src) img.src = item.src;
+          // Controls update (indices might change)
+          const btns = linkEl.querySelectorAll('.credit-control-btn');
+          if (btns[0]) btns[0].setAttribute('onclick', `game.editCreditItem(${index})`);
+          if (btns[1]) btns[1].setAttribute('onclick', `game.deleteCreditItem(${index})`);
+        } else {
+          const img = itemEl.querySelector('img');
+          if (img && img.src !== item.src) img.src = item.src;
+          // Controls update
+          const btns = itemEl.querySelectorAll('.credit-control-btn');
+          if (btns[0]) btns[0].setAttribute('onclick', `game.editCreditItem(${index})`);
+          if (btns[1]) btns[1].setAttribute('onclick', `game.deleteCreditItem(${index})`);
+          // If for some reason img is missing (e.g. data corruption/race), fallback to innerHTML
+          if (!img) itemEl.innerHTML = content;
+        }
+      }
     });
+
     if (this.creditsEditMode) this.initDragAndDrop();
   }
 
