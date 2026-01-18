@@ -898,6 +898,43 @@ Guidelines for your responses:
         }
         break;
     }
+  },
+
+  /**
+   * Generate an image using Player Two API
+   * @param {string} prompt - Image description
+   * @param {number} [width] - Optional width (128-1024)
+   * @param {number} [height] - Optional height (128-1024)
+   * @returns {Promise<string|null>} Base64 image data or null
+   */
+  async generateImage(prompt, width, height) {
+    if (!prompt) return null;
+
+    try {
+      const payload = { prompt };
+      if (width) payload.width = width;
+      if (height) payload.height = height;
+
+      const response = await this.makeRequest(`${this.apiBase}/image/generate`, {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        console.error('Image generation failed:', response.statusText);
+        return null;
+      }
+
+      const data = await response.json();
+      if (data && data.image) {
+        // Ensure data URI prefix if missing
+        return data.image.startsWith('data:') ? data.image : `data:image/png;base64,${data.image}`;
+      }
+    } catch (e) {
+      console.error('Image generation error:', e);
+    }
+    return null;
   }
 });
 
