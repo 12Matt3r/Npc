@@ -68,7 +68,7 @@
         
         <!-- Main Content -->
         <div class="compact-content">
-            <input id="menu-search" class="compact-search" type="text" placeholder="Search patients...">
+            <input id="menu-search" class="compact-search" type="text" placeholder="Search patients..." aria-label="Search patients">
             <div class="roster-panel">
                 <div id="menu-roster-grid" class="roster-grid"></div>
             </div>
@@ -118,7 +118,7 @@
                         <!-- Choices will be replaced by an input field -->
                     </div>
                     <div id="player-input-area" class="player-input-container">
-                        <input type="text" id="player-response" placeholder="Type your response...">
+                        <input type="text" id="player-response" placeholder="Type your response..." aria-label="Type your response">
                         <button id="send-response-btn" class="send-btn">SEND</button>
                     </div>
                     <div id="quick-replies" class="quick-replies"></div>
@@ -464,7 +464,7 @@
           <h2 id="cmdk-title" class="modal-title">Quick Search</h2>
           <button class="btn" id="cmdk-close-btn" aria-label="Close">CLOSE</button>
         </div>
-        <input id="cmdk-input" type="text" class="modal-input" placeholder="Search patients… (Enter to start session)" aria-autocomplete="list" aria-controls="cmdk-list" />
+        <input id="cmdk-input" type="text" class="modal-input" placeholder="Search patients… (Enter to start session)" aria-autocomplete="list" aria-controls="cmdk-list" aria-label="Command palette search" />
         <div id="cmdk-list" class="cmdk-list" role="listbox" aria-label="Search results"></div>
         <div class="cmdk-hint">↑/↓ to navigate • Enter to Start • Esc to Close</div>
       </div>
@@ -510,7 +510,7 @@
             </div>
             <div class="feedback-form">
                 <p>We value your input! Let us know if you found a bug or have a suggestion.</p>
-                <textarea id="feedback-input" class="modal-input" placeholder="Describe your issue or idea here..." style="min-height: 100px;"></textarea>
+                <textarea id="feedback-input" class="modal-input" placeholder="Describe your issue or idea here..." style="min-height: 100px;" aria-label="Feedback description"></textarea>
                 <div class="feedback-type">
                     <label><input type="radio" name="feedback-type" value="bug" checked> Bug</label>
                     <label><input type="radio" name="feedback-type" value="feature"> Feature</label>
