@@ -80,6 +80,7 @@
         <div class="session-header">
             <h2 id="session-npc-name"></h2>
             <button class="btn" onclick="game.openRadio()">📻 RADIO</button>
+            <button class="btn" onclick="game.toggleFullscreen()" title="Toggle Fullscreen">⛶</button>
             <button class="btn" onclick="game.exportTranscript()">EXPORT</button>
             <button class="btn" onclick="game.requestExitSession()">EXIT</button>
             <div id="trust-badge" class="trust-badge" aria-live="polite" title="Patient trust">Trust: 0/10</div>
@@ -133,7 +134,10 @@
     <!-- Journal -->
     <div id="journal" class="screen">
         <div class="journal-header">
-            <h1>Patient Journal</h1>
+            <div style="display:flex;align-items:center;gap:1rem;">
+                <h1>Patient Journal</h1>
+                <button class="btn" onclick="game.toggleFullscreen()" title="Toggle Fullscreen" style="padding: 4px 10px;">⛶</button>
+            </div>
             <div class="journal-stats">
                 <div>Total Patients: <span id="journal-total">0</span></div>
                 <div>Healed: <span id="journal-healed">0</span></div>
@@ -152,6 +156,7 @@
             <h2>Connection Map</h2>
             <div>
                 <button class="btn" onclick="game.openRadio()">📻 RADIO</button>
+                <button class="btn" onclick="game.toggleFullscreen()" title="Toggle Fullscreen">⛶</button>
                 <button class="btn" onclick="game.returnToGame()">RETURN</button>
             </div>
         </div>
