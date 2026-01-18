@@ -296,7 +296,7 @@ export class Game {
     const rmEl = document.getElementById('setting-reduce-motion'); if (rmEl) rmEl.checked = !!this.settings.reduceMotion;
     const dsEl = document.getElementById('setting-dialogue-scale'); if (dsEl) dsEl.value = this.settings.dialogueScale;
     this.bindCommandPalette();
-    window.addEventListener('beforeunload', () => { try { this.autosave(); } catch (_) {} });
+    window.addEventListener('beforeunload', () => { try { this.autosave(); this.saveAllNpcImages(true); } catch (_) {} });
     this.setupPermissionModalEvents();
     this.initMultiplayer();
     window.addEventListener('beforeunload', async () => { if (PLAYER_TWO_AVAILABLE) { await window.PlayerTwoBridge.killAllNPCs(); } });
@@ -1984,6 +1984,44 @@ export class Game {
     this.gameTime = saveData.time || 0; this.chromaAwardGiven = saveData.award || false;
     this.communityCredits = saveData.credits || []; this.npcNotes = saveData.npcNotes || {};
     this.sessionArchives = saveData.archives || {};
+  }
+
+  saveAllNpcImages(force = false) {
+    return new Promise((resolve) => {
+      if (this._saveAllPending && !force) {
+        resolve();
+        return;
+      }
+      this._saveAllPending = true;
+
+      const saveTask = () => {
+        this._saveAllPending = false;
+        try {
+          const edits = {};
+          this.npcs.forEach(n => {
+            edits[n.id] = {
+              name: n.name,
+              origin: n.origin,
+              crisis: n.crisis,
+              habitat: n.habitat,
+              officeImage: n.officeImage
+            };
+          });
+          localStorage.setItem('npcEdits', JSON.stringify(edits));
+        } catch (error) {
+          console.warn('Error saving all NPC images:', error);
+        }
+        resolve();
+      };
+
+      if (force) {
+        saveTask();
+      } else if (typeof window !== 'undefined' && window.requestIdleCallback) {
+        window.requestIdleCallback(saveTask, { timeout: 5000 });
+      } else {
+        setTimeout(saveTask, 100);
+      }
+    });
   }
 
   autosave() {
