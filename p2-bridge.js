@@ -29,6 +29,14 @@ const PlayerTwoBridge = (window.PlayerTwoBridge = {
     'CYw3kZ02Hs0563khs1Fj'   // Dave
   ],
 
+  _femaleNames: [
+    'sarah', 'emma', 'sophie', 'chloe', 'ava', 'mia', 'isabella', 'emily',
+    'grace', 'hannah', 'lily', 'zoe', 'leah', 'lucy', 'ella', 'freya',
+    'ivy', 'scarlett', 'imogen', 'poppy', 'alice', 'ruby', 'brooke',
+    'daisy', 'mira', 'luna', 'seraphina', 'zara', 'aria', 'melancholy',
+    'daisy', 'elara', 'luna'
+  ],
+
   // Request queue for rate limiting
   requestQueue: [],
   processing: false,
@@ -563,16 +571,9 @@ Guidelines for your responses:
    * Simple gender detection from name
    */
   detectGender(name) {
-    const femaleNames = [
-      'sarah', 'emma', 'sophie', 'chloe', 'ava', 'mia', 'isabella', 'emily', 
-      'grace', 'hannah', 'lily', 'zoe', 'leah', 'lucy', 'ella', 'freya', 
-      'ivy', 'scarlett', 'imogen', 'poppy', 'alice', 'ruby', 'brooke', 
-      'daisy', 'mira', 'luna', 'seraphina', 'zara', 'aria', 'melancholy',
-      'daisy', 'elara', 'luna'
-    ];
     const lowerName = name.toLowerCase();
     
-    if (femaleNames.some(n => lowerName.includes(n))) {
+    if (this._femaleNames.some(n => lowerName.includes(n))) {
       return 'female';
     }
     return 'male';
