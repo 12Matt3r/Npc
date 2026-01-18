@@ -421,20 +421,20 @@ export class Game {
       this._lastMenuItems.push({ npc, index });
 
       const card = document.createElement('div');
-      card.className = `npc-card ${isUnlocked ? 'unlocked' : 'locked'} ${isHealed ? 'healed' : ''}`;
+      card.className = `roster-card ${isUnlocked ? 'unlocked' : 'locked'} ${isHealed ? 'healed' : ''}`;
 
       // Delay-load animation
       card.style.animationDelay = `${Math.min(index, 10) * 0.05}s`;
 
       if (isUnlocked) {
         card.innerHTML = `
-          <div class="card-thumb">
+          <div class="roster-thumb">
             <img src="${npc.habitat}" alt="${npc.name}" loading="lazy">
-            ${isHealed ? '<div class="healed-badge">★</div>' : ''}
+            ${isHealed ? '<div class="roster-status healed">Healed</div>' : '<div class="roster-status" style="display:none"></div>'}
           </div>
-          <div class="card-info">
-            <div class="card-name">${npc.name}</div>
-            <div class="card-meta">${npc.session}</div>
+          <div class="roster-info">
+            <div class="roster-name">${npc.name}</div>
+            <div class="roster-origin">${npc.session}</div>
           </div>
         `;
         card.onclick = () => {
@@ -443,12 +443,13 @@ export class Game {
         };
       } else {
         card.innerHTML = `
-          <div class="card-thumb locked-thumb">
-            <span>🔒</span>
+          <div class="roster-thumb">
+             <div class="roster-status locked">Locked</div>
+             <div style="display:flex;align-items:center;justify-content:center;height:100%;color:#333;font-size:2rem;">🔒</div>
           </div>
-          <div class="card-info">
-            <div class="card-name">Locked</div>
-            <div class="card-meta">Session ${String(index + 1).padStart(2, '0')}</div>
+          <div class="roster-info">
+            <div class="roster-name">Locked</div>
+            <div class="roster-origin">Session ${String(index + 1).padStart(2, '0')}</div>
           </div>
         `;
         card.onclick = () => {
