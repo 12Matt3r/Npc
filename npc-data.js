@@ -556,7 +556,7 @@ export const npcDatabase = [
 // Merge saved edits from localStorage into the base database so updated info appears globally
 export function loadNpcDatabase() {
   try {
-    const base = JSON.parse(JSON.stringify(npcDatabase));
+    const base = structuredClone(npcDatabase);
     const edits = JSON.parse(localStorage.getItem('npcEdits') || '{}');
     const merged = base.map(n => {
       const e = edits[n.id];
