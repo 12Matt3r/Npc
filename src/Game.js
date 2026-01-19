@@ -23,17 +23,6 @@ import {
   attachImageLoadingEffects
 } from './utils/helpers.js';
 
-// Enhanced websim shim with 11 Labs TTS
-const websim = (window.websim = window.websim || {
-  chat: { completions: { create: async ({ json }) => ({ content: json ? '[]' : '...' }) } },
-  imageGen: async () => ({ url: null }),
-  // Removed recursive override; use native window.websim.textToSpeech if available
-  upload: async (file) => {
-    // Fallback: create a local blob URL so mobile uploads work without websim backend
-    return URL.createObjectURL(file);
-  },
-});
-
 /**
  * Main Game Controller
  * Manages game state, NPC interactions, and SDK integration.
@@ -121,182 +110,92 @@ export class Game {
     return '/therapy_office.png';
   }
 
-  // Websim 11 Labs TTS Implementation
   async callWebsimTTS(params) {
     const { text, voice } = params || {};
-    if (!this.settings.tts || !text || this.textOnlyMode) {
-      return { url: null };
-    }
-
+    if (!this.settings.tts || !text || this.textOnlyMode) return { url: null };
     try {
-      // Resolve a simple voice code for the NPC (e.g., "en-male"/"en-female")
       const character = this.currentNPC;
-      const voiceCode = voice || this.getVoiceForNPC(character?.id);
-
-      // Use native window.websim.textToSpeech when available
-      if (window.websim && typeof window.websim.textToSpeech === 'function') {
-        const response = await window.websim.textToSpeech({
-          text,
-          voice: voiceCode,
-        });
-        return response || { url: null };
+      if (PLAYER_TWO_AVAILABLE && window.PlayerTwoBridge.getVoiceIdForCharacter) {
+        const p2VoiceId = window.PlayerTwoBridge.getVoiceIdForCharacter(character);
+        try {
+          const audioUrl = await window.PlayerTwoBridge.speakText(text, p2VoiceId, { speed: 0.95 });
+          if (audioUrl) return { url: audioUrl };
+        } catch (err) { console.warn('Player Two TTS failed, falling back:', err); }
       }
-
-      // If the API is unavailable, fall back to browser TTS
       return await this.fallbackBrowserTTS(text);
-    } catch (error) {
-      console.warn('Websim TTS failed, falling back to browser TTS:', error);
-      return await this.fallbackBrowserTTS(text);
-    }
+    } catch (error) { console.warn('TTS failed, falling back to browser TTS:', error); return await this.fallbackBrowserTTS(text); }
   }
 
-  // Fallback to browser TTS if Websim TTS fails
   async fallbackBrowserTTS(text) {
-    if (!('speechSynthesis' in window)) {
-      return { url: null };
-    }
-
+    if (!('speechSynthesis' in window)) return { url: null };
     try {
       const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 0.9;
-      utterance.pitch = 1.0;
-      utterance.volume = 1.0;
-
-      // Find a suitable voice
+      utterance.rate = 0.9; utterance.pitch = 1.0; utterance.volume = 1.0;
       const voices = speechSynthesis.getVoices();
-      const preferredVoice = voices.find(v => v.lang.startsWith('en') && v.name.includes('Female')) ||
-                           voices.find(v => v.lang.startsWith('en')) ||
-                           voices[0];
-
-      if (preferredVoice) {
-        utterance.voice = preferredVoice;
-      }
-
+      const preferredVoice = voices.find(v => v.lang.startsWith('en') && v.name.includes('Female')) || voices.find(v => v.lang.startsWith('en')) || voices[0];
+      if (preferredVoice) utterance.voice = preferredVoice;
       speechSynthesis.speak(utterance);
       return { url: null };
-    } catch (error) {
-      console.warn('Browser TTS also failed:', error);
-      return { url: null };
-    }
+    } catch (error) { console.warn('Browser TTS also failed:', error); return { url: null }; }
   }
 
-  // Comprehensive 11 Labs voice library for 55+ characters with verified voice IDs
   getVoiceIdForCharacter(character) {
-    if (!character) return 'EXAVITQu4vr4xnSDxMaL'; // Default voice (Bella - female)
-
+    if (!character) return 'EXAVITQu4vr4xnSDxMaL';
     const characterIndex = this.getCharacterIndex(character);
     const gender = this.getCharacterGender(character);
-
-    // Voice pools with verified 11 Labs voice IDs
-    const femaleVoices = [
-      'EXAVITQu4vr4xnSDxMaL', // Bella - soft, warm female
-      'IKne3meq5aSn9XLyUdCD', // Charlotte - elegant female
-      'Erb2aVKbUjmDbZDW0EUl', // Matilda - friendly female
-      'ThT5KcBeYPX3keUQqHPh', // Dorothy - clear female
-      'Xb7hHmsMSqMt8JDRKZmR', // Elsie - gentle female
-      'dIHfPqOYQP7sYx0wBoQj', // Matilda - mature female
-      'v7j7aL4aL6yJ3S9K6Z4f', // Sarah - wise female
-      'ZLNc5MSGzPsl58pVVI6z', // Sophia - confident female
-      'iXJp8G1Y0OKL97s9mUq8', // Domi - energetic female
-      'VR6AewLTigWG4xSOukaG', // Arnold - also good for female characters
-      'CYw3kZ02Hs0563khs1Fj', // Dave - versatile voice
-      'bVMeCyTHy58xNoL34h3p', // Clyde - mature voice
-      'ErXwobaYiN019PkySvjV', // Donald - clear voice
-      'jsCqWAovK2LkecY7zXl4', // Josh - young voice
-      'AIFQyd7GmdmPYYKDGn8P', // Matt - friendly voice
-    ];
-
-    const maleVoices = [
-      'pNInz6obpgDQGcFmaJgB', // Adam - deep male
-      'VR6AewLTigWG4xSOukaG', // Arnold - rough male
-      'CYw3kZ02Hs0563khs1Fj', // Dave - friendly male
-      'bVMeCyTHy58xNoL34h3p', // Clyde - wise male
-      'ErXwobaYiN019PkySvjV', // Donald - confident male
-      'jsCqWAovK2LkecY7zXl4', // Josh - young male
-      'AIFQyd7GmdmPYYKDGn8P', // Matt - casual male
-      '3HO6Pj9B8qLcGHYMSnQF', // Michael - professional male
-      'EjaXVo2F1d74l9kC1HMi', // James - strong male
-      'PfluYxWGeiGYBoNE9tP7', // William - sophisticated male
-      'KOun72jFzG5uUaz8Rw9g', // Lewis - warm male
-      'AVM5jL4EX9UY79nz8f4b', // Robert - authoritative male
-      'EUl2dcsEgNVTqB9q4eVx', // Sam - upbeat male
-      'gK5j0S6w7W7Q9F2cM1pF', // Thomas - thoughtful male
-      'x4rC9rTF2y4H7l4G9v5m', // Ethan - modern male
-    ];
-
-    // If we have the actual NPC data, try to find a specific voice for this character
     if (character.name && this.npcs) {
-      // Create a hash from character name for consistent voice assignment
       const nameHash = this.hashString(character.name);
-      const voiceIndex = nameHash % (gender === 'male' ? maleVoices.length : femaleVoices.length);
-      return gender === 'male' ? maleVoices[voiceIndex] : femaleVoices[voiceIndex];
+      const voiceIndex = nameHash % (gender === 'male' ? MALE_VOICES.length : FEMALE_VOICES.length);
+      return gender === 'male' ? MALE_VOICES[voiceIndex] : FEMALE_VOICES[voiceIndex];
     }
-
-    // Fallback: use character index to ensure variety across 55 characters
-    const voicePool = gender === 'male' ? maleVoices : femaleVoices;
+    const voicePool = gender === 'male' ? MALE_VOICES : FEMALE_VOICES;
     return voicePool[characterIndex % voicePool.length];
   }
 
-  // Simple string hash function for consistent voice assignment
   hashString(str) {
     let hash = 0;
     for (let i = 0; i < str.length; i++) {
       const char = str.charCodeAt(i);
       hash = ((hash << 5) - hash) + char;
-      hash = hash & hash; // Convert to 32-bit integer
+      hash = hash & hash;
     }
     return Math.abs(hash);
   }
 
-  // Get character's index for consistent voice assignment
   getCharacterIndex(character) {
     if (!this.npcs || this.npcs.length === 0) return 0;
     const index = this.npcs.findIndex(npc => npc.id === character.id || npc.name === character.name);
     return index >= 0 ? index : 0;
   }
 
-  // Determine character gender from name or other indicators
   getCharacterGender(character) {
     const name = character.name ? character.name.toLowerCase() : '';
-
-    // Simple heuristics based on common names
-    const femaleNames = ['sarah', 'emma', 'sophie', 'chloe', 'ava', 'mia', 'isabella', 'emily', 'grace', 'hannah', 'lily', 'zoe', 'leah', 'lucy', 'ella', 'freya', 'ivy', 'scarlett', 'imogen', 'poppy', 'alice', 'ruby', 'charlie', 'brooke', 'daisy'];
-    const maleNames = ['oliver', 'harry', 'jack', 'jacob', 'noah', 'charlie', 'thomas', 'william', 'james', 'george', 'alfie', 'joshua', 'muhammad', 'harrison', 'leo', 'alexander', 'archie', 'mason', 'ethan', 'joseph', 'freddie', 'samuel', 'ryan'];
-
-    if (femaleNames.some(n => name.includes(n))) return 'female';
-    if (maleNames.some(n => name.includes(n))) return 'male';
-
-    // If we can't determine, assume neutral/female
+    if (GENDER_HEURISTIC_FEMALE_NAMES.some(n => name.includes(n))) return 'female';
+    if (GENDER_HEURISTIC_MALE_NAMES.some(n => name.includes(n))) return 'male';
     return 'female';
   }
 
-  getVoiceForNPCFromWebSpeech(websimVoice) {
-    // Convert websim voice names to Web Speech API voice names
-    const voiceMap = {
-      'en-female': 'female',  // Will try to find female voices
-      'en-male': 'male',      // Will try to find male voices
-    };
-    return voiceMap[websimVoice] || 'default';
-  }
-
-  // Keep old performTTS method for backward compatibility, but redirect to Websim
   async performTTS(params) {
     try {
       const res = await this.callWebsimTTS(params);
       return res || { url: null };
     } catch (error) {
       console.warn('TTS failed:', error);
-      // Fallback to browser TTS if available
       const text = params?.text || '';
       if (text) {
         try {
-          const websimVoice = params?.voice || this.getVoiceForNPC(this.currentNPC?.id);
-          const voiceName = this.getVoiceForNPCFromWebSpeech(websimVoice);
+          const p2Voice = params?.voice || this.getVoiceForNPC(this.currentNPC?.id);
+          const voiceName = this.getVoiceFromMap(p2Voice);
           await this.ttsSystem.speak(text, voiceName);
         } catch (_) {}
       }
       return { url: null };
     }
+  }
+
+  getVoiceFromMap(p2Voice) {
+    const voiceMap = { 'en-female': 'female', 'en-male': 'male' };
+    return voiceMap[p2Voice] || 'default';
   }
 
   init() {
@@ -600,26 +499,18 @@ export class Game {
 
   getVoiceForNPC(id) { return NPC_VOICE_MAP[id] || "en-male"; }
 
-  // Enhanced speak method for working TTS
   async speak(text, npcId) {
     if (!this.settings.tts || !text || this.textOnlyMode) return;
-
-    // Get the NPC data to select appropriate ElevenLabs voice
     const npc = this.npcs.find(n => n.id === npcId);
     const voice = this.getVoiceIdForCharacter(npc);
-
-    // Normalize and clamp length to avoid long-generation stalls
     const clean = String(text).replace(/\s+/g, ' ').trim().slice(0, 280);
     this.enqueueSpeak({ text: clean, voice });
-    // Add visual feedback
     this.showSpeakingIndicator(true);
   }
 
   enqueueSpeak(item) {
-    // If TTS disabled, clear queue
     if (!this.settings.tts) { this.ttsQueue = []; this.showSpeakingIndicator(false); return; }
     this.ttsQueue.push(item);
-    // If already speaking, let current finish; otherwise process now
     if (!this.speaking) this.processSpeakQueue();
   }
 
@@ -629,110 +520,49 @@ export class Game {
     try {
       while (this.ttsQueue.length) {
         const { text, voice } = this.ttsQueue.shift();
-
-        // Try websim ElevenLabs TTS first (high-quality natural voices)
         const url = await this._getTtsUrl(text, voice);
         if (url) {
           try {
-            // Create and play audio element
-            this.ttsAudio = new Audio(url);
-            this.ttsAudio.volume = 0.8;
-            await this.ttsAudio.play();
-          } catch (err) {
-            console.warn('Websim TTS playback error:', err);
-            // Fallback to browser TTS if websim fails
-            await this.useWebSpeechTTS(text, voice);
-          }
+            this.ttsAudio = new Audio(url); this.ttsAudio.volume = 0.8; await this.ttsAudio.play();
+          } catch (err) { console.warn('Player Two TTS playback error:', err); await this.useWebSpeechTTS(text, voice); }
         } else {
-          // If websim TTS fails completely, fallback to browser TTS
           const success = await this.useWebSpeechTTS(text, voice);
-          if (!success) {
-            console.warn('Both websim and browser TTS failed for text:', text);
-          }
+          if (!success) { console.warn('Both Player Two and browser TTS failed for text:', text); }
         }
-
-        // If TTS got disabled mid-queue, stop processing
         if (!this.settings.tts) break;
       }
-    } finally {
-      this.speaking = false;
-      this.showSpeakingIndicator(false);
-    }
+    } finally { this.speaking = false; this.showSpeakingIndicator(false); }
   }
 
   async useWebSpeechTTS(text, voice) {
     if (!('speechSynthesis' in window)) return false;
-
     try {
-      // Cancel any current speech
       speechSynthesis.cancel();
-
-      // Create utterance
       const utterance = new SpeechSynthesisUtterance(text);
-
-      // Find and set the voice
       const voices = speechSynthesis.getVoices();
       let selectedVoice = null;
-
-      if (voice) {
-        // Try to find a voice that matches the voice ID or name
-        selectedVoice = voices.find(v => v.name === voice || v.voiceURI === voice);
-      }
-
-      if (!selectedVoice) {
-        // Fallback to English female voice
-        selectedVoice = voices.find(v => v.lang.startsWith('en') && v.name.includes('Female')) ||
-                       voices.find(v => v.lang.startsWith('en')) ||
-                       voices[0];
-      }
-
-      if (selectedVoice) {
-        utterance.voice = selectedVoice;
-      }
-
-      // Set speech parameters
-      utterance.rate = 0.9;
-      utterance.pitch = 1.0;
-      utterance.volume = 0.8;
-
-      // Show speaking indicator
+      if (voice) { selectedVoice = voices.find(v => v.name === voice || v.voiceURI === voice); }
+      if (!selectedVoice) { selectedVoice = voices.find(v => v.lang.startsWith('en') && v.name.includes('Female')) || voices.find(v => v.lang.startsWith('en')) || voices[0]; }
+      if (selectedVoice) { utterance.voice = selectedVoice; }
+      utterance.rate = 0.9; utterance.pitch = 1.0; utterance.volume = 0.8;
       this.showSpeakingIndicator(true);
-
-      // Return promise that resolves when speech is finished
       return new Promise((resolve, reject) => {
-        utterance.onend = () => {
-          this.showSpeakingIndicator(false);
-          resolve(true);
-        };
-        utterance.onerror = (error) => {
-          this.showSpeakingIndicator(false);
-          console.warn('Web Speech TTS error:', error);
-          resolve(false);
-        };
-
-        // Start speaking
+        utterance.onend = () => { this.showSpeakingIndicator(false); resolve(true); };
+        utterance.onerror = (error) => { this.showSpeakingIndicator(false); console.warn('Web Speech TTS error:', error); resolve(false); };
         speechSynthesis.speak(utterance);
       });
-
-    } catch (error) {
-      console.warn('Web Speech TTS failed:', error);
-      return false;
-    }
+    } catch (error) { console.warn('Web Speech TTS failed:', error); return false; }
   }
 
   async _getTtsUrl(text, voice) {
     const key = `${voice}::${text}`;
     if (this.ttsCache.has(key)) return this.ttsCache.get(key);
     try {
-      // Call our unified TTS handler to avoid recursion
       const res = await withTimeout(this.callWebsimTTS({ text, voice }), 8000);
       const url = res && res.url ? res.url : null;
       if (url) this.ttsCache.set(key, url);
       return url;
-    } catch (e) {
-      console.warn('TTS generation failed:', e);
-      return null;
-    }
+    } catch (e) { console.warn('TTS generation failed:', e); return null; }
   }
 
   async generateNpcResponse() {
