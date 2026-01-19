@@ -146,6 +146,12 @@ export class Game {
       } else {
          const audio = new Audio(audioUrl);
          audio.volume = 1.0;
+
+         // Visualize the NPC's voice
+         if (this.audioVisualizer) {
+           this.audioVisualizer.attachToElement(audio);
+         }
+
          audio.play().catch(e => console.warn("Stream audio play failed:", e));
       }
     }
@@ -652,7 +658,6 @@ export class Game {
     this.generatingResponse = true;
     const dialogueText = document.getElementById('dialogue'); const choicesContainer = document.getElementById('choices'); const typingIndicator = document.getElementById('typing-indicator'); const playerInputArea = document.getElementById('player-input-area');
     dialogueText.textContent = ''; choicesContainer.innerHTML = ''; typingIndicator.style.display = 'block'; playerInputArea.style.display = 'none';
-
     if (PLAYER_TWO_AVAILABLE && this.currentNPCId) {
       try {
         if (!this.currentNPCId) { await this.spawnCurrentNPC(); }
