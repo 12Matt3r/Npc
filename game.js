@@ -1,4 +1,2575 @@
-import { loadNpcDatabase } from './npc-data.js';
+/**
+ * Player Two API Configuration
+ * Fill in your specific values before deploying
+ */
+
+const PlayerTwoConfig = {
+  // ============================================
+  // 1. API AUTHENTICATION
+  // ============================================
+
+  // Your Player Two API authentication
+  // Leave null if hosting on player2.game (automatic authentication)
+  // Otherwise, provide your Bearer token
+  authToken: null, // Example: "your-api-token-here"
+
+  // Client ID for Device Code Flow
+  clientId: '019bc7e3-eca4-7be8-ab6b-38b6b01bf701',
+
+  // API Base URL
+  apiBase: 'https://api.player2.game/v1',
+
+  // ============================================
+  // 2. NPC CONFIGURATION
+  // ============================================
+
+  // Default AI model for NPCs
+  // Options: "gpt-4o", "claude-3-5-sonnet", "gpt-3.5-turbo"
+  defaultModel: "gpt-4o",
+
+  // ============================================
+  // 3. AI RESPONSE SETTINGS
+  // ============================================
+
+  aiSettings: {
+    temperature: 0.7,        // Creativity level (0.0 - 1.0)
+    maxTokens: 500,          // Maximum response length
+    ttsSpeed: 0.95,          // Text-to-speech speed
+    ttsFormat: 'mp3'         // Audio format
+  },
+
+  // ============================================
+  // 4. VOICE MAPPING (ElevenLabs IDs)
+  // ============================================
+
+  voices: {
+    // Female voices
+    female: [
+      'EXAVITQu4vr4xnSDxMaL',  // Bella - warm, soft
+      'IKne3meq5aSn9XLyUdCD',  // Charlotte - elegant
+      'Erb2aVKbUjmDbZDW0EUl',  // Matilda - warm
+      'ThT5KcBeYPX3keUQqHPh',  // Dorothy - clear
+      'Xb7hHmsMSqMt8JDRKZmR',  // Elsie - gentle
+    ],
+
+    // Male voices
+    male: [
+      'pNInz6obpgDQGcFmaJgB',  // Adam - deep
+      'VR6AewLTigWG4xSOukaG',  // Arnold - rough
+      'CYw3kZ02Hs0563khs1Fj',  // Dave - conversational
+      'bVMeCyTHy58xNoL34h3p',  // Clyde - mature
+      'ErXwobaYiN019PkySvjV',  // Donald - clear
+    ]
+  },
+
+  // ============================================
+  // 5. STATE MANAGEMENT
+  // ============================================
+
+  statePersistence: {
+    // How to handle game state
+    mode: 'hybrid', // Options: 'server-only', 'hybrid', 'custom'
+
+    // Use localStorage for backup
+    useLocalStorage: true,
+
+    // Sync interval (milliseconds)
+    syncInterval: 30000,
+
+    // Keep NPC conversation history on server
+    keepGameState: true
+  },
+
+  // ============================================
+  // 6. ENVIRONMENT DETAILS
+  // ============================================
+
+  environment: {
+    // Hosting platform
+    platform: 'player2-hosted', // Options: 'player2-hosted', 'vercel', 'netlify', 'local'
+
+    // Enable debug logging
+    debug: true,
+
+    // Retry configuration
+    maxRetries: 3,
+    retryDelay: 1000
+  }
+};
+
+// Export for use in other modules
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = PlayerTwoConfig;
+}
+window.PlayerTwoConfig = PlayerTwoConfig;
+
+/**
+ * Player Two API Communication Bridge
+ * Replaces websim object for Player Two AI integration
+ *
+ * This module provides a drop-in replacement for the Websim API,
+ * adapting your existing game code to work with Player Two's NPC API.
+ */
+
+const PlayerTwoBridge = (window.PlayerTwoBridge = {
+  // Configuration - loaded from PlayerTwoConfig
+  apiBase: null,
+  authToken: null,
+
+  // NPC management
+  activeNPCs: new Map(),
+  responseStream: null,
+  streamController: null,
+
+  // Voice cache
+  availableVoices: null,
+  _fallbackFemaleVoices: [
+    'EXAVITQu4vr4xnSDxMaL',  // Bella
+    'IKne3meq5aSn9XLyUdCD',  // Charlotte
+    'Erb2aVKbUjmDbZDW0EUl'   // Matilda
+  ],
+  _fallbackMaleVoices: [
+    'pNInz6obpgDQGcFmaJgB',  // Adam
+    'VR6AewLTigWG4xSOukaG',  // Arnold
+    'CYw3kZ02Hs0563khs1Fj'   // Dave
+  ],
+
+  _femaleNames: [
+    'sarah', 'emma', 'sophie', 'chloe', 'ava', 'mia', 'isabella', 'emily',
+    'grace', 'hannah', 'lily', 'zoe', 'leah', 'lucy', 'ella', 'freya',
+    'ivy', 'scarlett', 'imogen', 'poppy', 'alice', 'ruby', 'brooke',
+    'daisy', 'mira', 'luna', 'seraphina', 'zara', 'aria', 'melancholy',
+    'daisy', 'elara', 'luna'
+  ],
+
+  // Request queue for rate limiting
+  requestQueue: [],
+  processing: false,
+  maxRetries: 3,
+  retryDelay: 1000,
+
+  // Function Handler
+  functionHandler: null,
+
+  // STT State
+  sttSocket: null,
+  sttAudioContext: null,
+  sttStream: null,
+  sttProcessor: null,
+  sttCallbacks: null,
+
+  // Auth Configuration
+  clientId: null,
+
+  /**
+   * Initialize the bridge with authentication
+   * Called automatically when the game loads
+   */
+  async init(config) {
+    this.apiBase = config.apiBase || 'https://api.player2.game/v1';
+    this.authToken = config.authToken;
+    this.clientId = config.clientId; // Should be added to config.js if needed
+    this.maxRetries = config.environment?.maxRetries || 3;
+    this.retryDelay = config.environment?.retryDelay || 1000;
+
+    console.log('PlayerTwoBridge: Initialized');
+
+    // Start fetching voices in background
+    this.fetchAndCacheVoices();
+
+    // Test authentication
+    const isAuthenticated = await this.testAuth();
+    if (!isAuthenticated && config.environment?.debug) {
+      console.warn('PlayerTwoBridge: Authentication test failed - check your token');
+    }
+
+    return isAuthenticated;
+  },
+
+  /**
+   * Fetch and cache available voices from API
+   */
+  async fetchAndCacheVoices() {
+    try {
+      const data = await this.getVoices();
+      if (data && data.voices && Array.isArray(data.voices)) {
+        this.availableVoices = { male: [], female: [], other: [] };
+        data.voices.forEach(v => {
+          const gender = (v.voice_gender || v.gender || v.labels?.gender || 'other').toLowerCase();
+          const id = v.id || v.voice_id;
+          if (id) {
+            if (this.availableVoices[gender]) {
+              this.availableVoices[gender].push(id);
+            } else {
+              this.availableVoices.other.push(id);
+            }
+          }
+        });
+        console.log(`PlayerTwoBridge: Cached voices - ${this.availableVoices.female.length} female, ${this.availableVoices.male.length} male, ${this.availableVoices.other.length} other`);
+      }
+    } catch (e) {
+      console.warn("PlayerTwoBridge: Failed to fetch voices, using fallbacks.", e);
+    }
+  },
+
+  /**
+   * Test authentication with joules endpoint
+   */
+  async testAuth() {
+    if (!this.authToken) return false;
+    try {
+      const response = await fetch(`${this.apiBase}/joules`, {
+        headers: this.getHeaders()
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log('✓ Authentication successful. Available joules:', data.joules);
+        return true;
+      } else {
+        console.error('✗ Authentication failed:', response.status);
+        return false;
+      }
+    } catch (error) {
+      console.error('✗ Connection error:', error);
+      return false;
+    }
+  },
+
+  /**
+   * Initiate Device Code Authentication Flow
+   * @param {string} clientId - The Client ID
+   * @param {function} onCodeReceived - Callback (data) => void to show UI
+   * @returns {Promise<string|null>} The token if successful
+   */
+  async login(clientId, onCodeReceived) {
+    // 1. Try Localhost Login (Player2 App)
+    const localToken = await this.tryLocalLogin(clientId);
+    if (localToken) {
+      this.authToken = localToken;
+      return localToken;
+    }
+
+    // 2. Start Device Flow
+    try {
+      const initResponse = await fetch(`${this.apiBase}/login/device/new`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ client_id: clientId })
+      });
+
+      if (!initResponse.ok) throw new Error('Failed to initiate auth flow');
+
+      const authData = await initResponse.json();
+
+      // Notify UI to show code
+      if (onCodeReceived) {
+        onCodeReceived(authData);
+      }
+
+      // Poll for token
+      const token = await this.pollForToken(clientId, authData);
+      if (token) {
+        this.authToken = token;
+        return token;
+      }
+    } catch (e) {
+      console.error('Login failed:', e);
+    }
+    return null;
+  },
+
+  /**
+   * Try to login via local Player2 App
+   */
+  async tryLocalLogin(clientId) {
+    try {
+      const response = await fetch(`http://localhost:4315/v1/login/web/${clientId}`, {
+        method: 'POST',
+        headers: { 'Accept': 'application/json' }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data && data.p2Key) {
+          console.log('✓ Local Player2 App login successful');
+          return data.p2Key;
+        }
+      }
+    } catch (e) {
+      // Ignore errors, app probably not running
+    }
+    return null;
+  },
+
+  /**
+   * Poll for token
+   */
+  async pollForToken(clientId, authData) {
+    const url = `${this.apiBase}/login/device/token`;
+    // Use snake_case properties from authData
+    const interval = authData.interval || 5;
+    const expiresIn = authData.expires_in || 300;
+
+    const pollInterval = Math.max(1000, interval * 1000);
+    const deadline = Date.now() + (expiresIn * 1000);
+
+    while (Date.now() < deadline) {
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({
+            client_id: clientId,
+            device_code: authData.device_code,
+            grant_type: "urn:ietf:params:oauth:grant-type:device_code"
+          })
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.p2Key) return data.p2Key;
+          // Some implementations return snake_case
+          if (data.access_token) return data.access_token;
+        } else if (response.status === 400) {
+          // Check for slow_down or expired
+          // standard behavior: keep polling on pending
+        } else if (response.status === 429) {
+          // Slow down
+          await new Promise(r => setTimeout(r, 5000));
+        } else {
+          // Fatal error
+          return null;
+        }
+      } catch (e) {
+        // Network error, keep polling
+      }
+
+      await new Promise(r => setTimeout(r, pollInterval));
+    }
+    return null;
+  },
+
+  /**
+   * Spawn an NPC with personality configuration
+   * Maps original NPC data to Player Two NPC spawn format
+   */
+  async spawnNPC(npcData, options = {}) {
+    const spawnPayload = {
+      name: npcData.name,
+      short_name: npcData.shortName || npcData.name.split(' ')[0],
+      character_description: `${npcData.origin} - ${npcData.crisis}`,
+      system_prompt: this.buildTherapySystemPrompt(npcData),
+      tts: {
+        voice_ids: [options.voiceId || this.getVoiceIdForCharacter(npcData)],
+        speed: options.ttsSpeed || 0.95,
+        audio_format: options.audioFormat || 'mp3'
+      },
+      commands: options.functions ? this.serializeFunctions(options.functions) : null,
+      keep_game_state: options.keepGameState !== false
+    };
+
+    try {
+      const response = await this.makeRequest(`${this.apiBase}/npcs/spawn`, {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify(spawnPayload)
+      });
+
+      if (!response.ok) {
+        throw new Error(`NPC spawn failed: ${response.statusText}`);
+      }
+
+      const npc = await response.json();
+      this.activeNPCs.set(npc.npc_id, {
+        data: npcData,
+        npcId: npc.npc_id,
+        spawnedAt: Date.now()
+      });
+
+      console.log(`✓ NPC spawned: ${npcData.name} (ID: ${npc.npc_id})`);
+      return npc;
+
+    } catch (error) {
+      console.error('Failed to spawn NPC:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Build therapy-specific system prompt for NPC
+   */
+  buildTherapySystemPrompt(npcData) {
+    return `You are ${npcData.name}, a patient in a therapy session.
+
+Context: ${npcData.origin}
+Crisis: ${npcData.crisis}
+Your opening statement when first meeting the therapist was: "${npcData.opening_statement}"
+
+Guidelines for your responses:
+- You are receiving therapy, not providing it
+- Stay in character as someone struggling with your specific crisis
+- Reply in 1-3 sentences that are reflective and specific to your situation
+- Occasionally reference elements from your environment (habitat/office imagery)
+- Show emotional depth appropriate to your crisis
+- Do not give advice; share your struggles and feelings
+- Be authentic and vulnerable in your responses
+- React naturally to the therapist's empathy and guidance
+- Show gradual progress or setbacks based on the quality of therapeutic care`;
+  },
+
+  /**
+   * Send message to NPC and receive response
+   * Supports both streaming and non-streaming modes
+   */
+  async chatWithNPC(npcId, playerMessage, gameStateInfo = null, streaming = false) {
+    const chatPayload = {
+      sender_name: 'Therapist',
+      sender_message: playerMessage,
+      game_state_info: gameStateInfo,
+      tts: 'server',
+      stream: true // Always request streaming/SSE mode behavior
+    };
+
+    try {
+      // In SSE mode, we just send the request. The response comes via the SSE stream.
+      // We do not await a JSON body here.
+      const response = await this.makeRequest(`${this.apiBase}/npcs/${npcId}/chat`, {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify(chatPayload)
+      });
+
+      if (!response.ok) {
+        throw new Error(`Chat failed: ${response.statusText}`);
+      }
+
+      // Fire and forget - return success immediately
+      return true;
+
+    } catch (error) {
+      console.error('Chat with NPC failed:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Set up streaming response listener
+   * Uses Server-Sent Events for real-time NPC responses
+   */
+  async listenForResponses(onResponse, onError) {
+    this.closeResponseStream();
+
+    try {
+      const response = await fetch(`${this.apiBase}/npcs/responses`, {
+        method: 'GET',
+        headers: this.getHeaders()
+      });
+
+      if (!response.ok) {
+        throw new Error(`Stream connection failed: ${response.statusText}`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+
+      this.streamController = new AbortController();
+
+      // Process the stream
+      const processStream = async () => {
+        try {
+          while (!this.streamController.signal.aborted) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value);
+            const lines = chunk.split('\n');
+
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                try {
+                  const data = JSON.parse(line.slice(6));
+                  if (data.error) {
+                    onError(data.error);
+                  } else {
+                    // Check for commands in the response
+                    if (data.command && Array.isArray(data.command)) {
+                      this.handleFunctionCalls(data.command, data.npc_id);
+                    }
+                    onResponse(data);
+                  }
+                } catch (e) {
+                  // Skip invalid JSON chunks
+                  console.debug('Invalid JSON chunk:', line);
+                }
+              }
+            }
+          }
+        } catch (e) {
+          if (!this.streamController.signal.aborted) {
+            onError(e);
+          }
+        }
+      };
+
+      processStream();
+
+    } catch (e) {
+      onError(e);
+    }
+  },
+
+  /**
+   * Close active response stream
+   */
+  closeResponseStream() {
+    if (this.streamController) {
+      this.streamController.abort();
+      this.streamController = null;
+    }
+  },
+
+  /**
+   * Kill an NPC and clean up resources
+   */
+  async killNPC(npcId) {
+    try {
+      const response = await this.makeRequest(`${this.apiBase}/npcs/${npcId}/kill`, {
+        method: 'DELETE',
+        headers: this.getHeaders()
+      });
+
+      this.activeNPCs.delete(npcId);
+      console.log(`✓ NPC killed: ${npcId}`);
+      return response.ok;
+
+    } catch (error) {
+      console.error('Failed to kill NPC:', error);
+      this.activeNPCs.delete(npcId); // Clean up locally anyway
+      return false;
+    }
+  },
+
+  /**
+   * Kill all active NPCs
+   */
+  async killAllNPCs() {
+    const promises = Array.from(this.activeNPCs.keys()).map(id => this.killNPC(id));
+    await Promise.allSettled(promises);
+    console.log('✓ All NPCs cleaned up');
+  },
+
+  /**
+   * Get available TTS voices
+   */
+  async getVoices() {
+    try {
+      const response = await this.makeRequest(`${this.apiBase}/tts/voices`, {
+        headers: this.getHeaders()
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to get voices: ${response.statusText}`);
+      }
+
+      return response.json();
+
+    } catch (error) {
+      console.error('Failed to get voices:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Generate TTS audio for text
+   * Returns base64-encoded audio data
+   */
+  async speakText(text, voiceId, options = {}) {
+    const payload = {
+      text: text,
+      voice_ids: [voiceId],
+      speed: options.speed || 1.0,
+      audio_format: options.audioFormat || 'mp3'
+    };
+
+    try {
+      const response = await this.makeRequest(`${this.apiBase}/tts/speak`, {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        throw new Error(`TTS failed: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return `data:audio/mp3;base64,${data.data}`;
+
+    } catch (error) {
+      console.error('TTS generation failed:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Direct chat completion (for quick replies, bond analysis, etc.)
+   * This is a simpler endpoint for AI completions that don't need NPC context
+   */
+  async createCompletion(messages, options = {}) {
+    const payload = {
+      messages: messages,
+      stream: false,
+      max_tokens: options.maxTokens || 500,
+      temperature: options.temperature || 0.7,
+      model: options.model || PlayerTwoConfig?.defaultModel || 'gpt-4o'
+    };
+
+    try {
+      const response = await this.makeRequest(`${this.apiBase}/chat/completions`, {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        throw new Error(`Completion failed: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return data.choices[0].message.content;
+
+    } catch (error) {
+      console.error('Completion request failed:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Get voice ID for character based on gender/name
+   */
+  getVoiceIdForCharacter(npcData) {
+    const gender = (npcData.gender || this.detectGender(npcData.name)).toLowerCase();
+
+    let voicePool;
+
+    // Use cached API voices if available
+    if (this.availableVoices && this.availableVoices[gender] && this.availableVoices[gender].length > 0) {
+      voicePool = this.availableVoices[gender];
+    } else {
+      // Fallback to hardcoded configuration
+      const config = window.PlayerTwoConfig || {};
+      const femaleVoices = config.voices?.female || this._fallbackFemaleVoices;
+      const maleVoices = config.voices?.male || this._fallbackMaleVoices;
+      voicePool = gender === 'female' ? femaleVoices : maleVoices;
+    }
+
+    // Use character name hash for consistent voice assignment
+    const hash = this.hashString(npcData.name);
+    return voicePool[hash % voicePool.length];
+  },
+
+  /**
+   * Simple gender detection from name
+   */
+  detectGender(name) {
+    const lowerName = name.toLowerCase();
+
+    if (this._femaleNames.some(n => lowerName.includes(n))) {
+      return 'female';
+    }
+    return 'male';
+  },
+
+  /**
+   * String hash for consistent voice assignment
+   */
+  hashString(str) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash;
+    }
+    return Math.abs(hash);
+  },
+
+  /**
+   * Make an API request with retry logic
+   */
+  async makeRequest(url, options, retryCount = 0) {
+    try {
+      const response = await fetch(url, options);
+
+      // Handle rate limiting with exponential backoff
+      if (response.status === 429 && retryCount < this.maxRetries) {
+        const delay = this.retryDelay * Math.pow(2, retryCount);
+        console.warn(`Rate limited, retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return this.makeRequest(url, options, retryCount + 1);
+      }
+
+      return response;
+
+    } catch (error) {
+      // Retry on network errors
+      if (retryCount < this.maxRetries) {
+        const delay = this.retryDelay * Math.pow(2, retryCount);
+        console.warn(`Request failed, retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return this.makeRequest(url, options, retryCount + 1);
+      }
+      throw error;
+    }
+  },
+
+  /**
+   * Get request headers with authentication
+   */
+  getHeaders() {
+    const headers = {
+      'Content-Type': 'application/json'
+    };
+
+    if (this.authToken) {
+      headers['Authorization'] = `Bearer ${this.authToken}`;
+    }
+
+    return headers;
+  },
+
+  /**
+   * Utility: Convert base64 to blob for audio playback
+   */
+  base64ToBlob(base64, mimeType) {
+    const byteCharacters = atob(base64);
+    const byteNumbers = new Array(byteCharacters.length);
+
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+
+    const byteArray = new Uint8Array(byteNumbers);
+    return new Blob([byteArray], { type: mimeType });
+  },
+
+  /**
+   * Check joules balance
+   */
+  async checkJoules() {
+    try {
+      const response = await this.makeRequest(`${this.apiBase}/joules`, {
+        headers: this.getHeaders()
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        return data.joules;
+      }
+      return null;
+    } catch (error) {
+      console.error('Failed to check joules:', error);
+      return null;
+    }
+  },
+
+  /**
+   * Get NPC by ID
+   */
+  getNPC(npcId) {
+    return this.activeNPCs.get(npcId);
+  },
+
+  /**
+   * Get all active NPCs
+   */
+  getAllNPCs() {
+    return Array.from(this.activeNPCs.values());
+  },
+
+  /**
+   * Register a callback for function calls
+   */
+  registerFunctionHandler(handler) {
+    this.functionHandler = handler;
+  },
+
+  /**
+   * Handle function calls from NPC response
+   */
+  handleFunctionCalls(commands, npcId) {
+    if (!this.functionHandler) return;
+
+    commands.forEach(cmd => {
+      try {
+        let args = cmd.arguments;
+        // If arguments is a string (JSON), parse it
+        if (typeof args === 'string') {
+          try {
+            args = JSON.parse(args);
+          } catch (e) {
+            console.warn('Failed to parse function arguments JSON:', e);
+          }
+        }
+
+        this.functionHandler({
+          name: cmd.name,
+          arguments: args,
+          npcId: npcId
+        });
+      } catch (e) {
+        console.error('Error handling NPC function call:', e);
+      }
+    });
+  },
+
+  /**
+   * Serialize functions to Player Two format
+   */
+  serializeFunctions(functions) {
+    if (!Array.isArray(functions)) return null;
+    return functions.map(fn => ({
+      name: fn.name,
+      description: fn.description,
+      parameters: {
+        type: 'object',
+        properties: fn.parameters || {},
+        required: fn.required || []
+      },
+      neverRespondWithMessage: fn.neverRespondWithMessage || false
+    }));
+  },
+
+  /**
+   * Start Speech-to-Text Session
+   * @param {Object} callbacks - { onTranscript, onError, onStart, onStop }
+   */
+  async startSTT(callbacks) {
+    if (this.sttSocket) this.stopSTT();
+    this.sttCallbacks = callbacks || {};
+
+    try {
+      if (!this.authToken && !this.clientId) {
+        // Allow unauthenticated usage if on specific domain, else fail
+        // For now, strict check or fallback
+      }
+
+      // 1. Get Audio Stream
+      this.sttStream = await navigator.mediaDevices.getUserMedia({ audio: {
+        channelCount: 1,
+        sampleRate: 44100
+      }});
+
+      // 2. Setup WebSocket
+      const wsProtocol = this.apiBase.startsWith('https') ? 'wss' : 'ws';
+      const wsBase = this.apiBase.replace(/^https?:\/\//, '');
+      let url = `${wsProtocol}://${wsBase}/stt/stream?sample_rate=44100&encoding=linear16&channels=1&vad_events=true&interim_results=true&punctuate=true&smart_format=true`;
+
+      if (this.authToken) {
+        url += `&token=${this.authToken}`;
+      }
+
+      this.sttSocket = new WebSocket(url);
+
+      this.sttSocket.onopen = () => {
+        console.log('Player2 STT Connected');
+        this.setupAudioProcessing();
+        if (this.sttCallbacks.onStart) this.sttCallbacks.onStart();
+
+        // Send configuration
+        this.sttSocket.send(JSON.stringify({
+          type: "configure",
+          data: {
+            sample_rate: 44100,
+            encoding: "linear16",
+            channels: 1,
+            interim_results: true,
+            vad_events: true,
+            punctuate: true
+          }
+        }));
+      };
+
+      this.sttSocket.onmessage = (event) => {
+        try {
+          const response = JSON.parse(event.data);
+          this.handleSTTMessage(response);
+        } catch (e) {
+          console.error('STT Parse Error:', e);
+        }
+      };
+
+      this.sttSocket.onerror = (e) => {
+        console.error('STT Socket Error:', e);
+        if (this.sttCallbacks.onError) this.sttCallbacks.onError(new Error("WebSocket Error"));
+      };
+
+      this.sttSocket.onclose = () => {
+        console.log('STT Socket Closed');
+        this.stopSTT(); // Cleanup
+        if (this.sttCallbacks.onStop) this.sttCallbacks.onStop();
+      };
+
+    } catch (e) {
+      console.error('Failed to start STT:', e);
+      if (this.sttCallbacks.onError) this.sttCallbacks.onError(e);
+    }
+  },
+
+  /**
+   * Stop Speech-to-Text Session
+   */
+  stopSTT() {
+    if (this.sttProcessor) {
+      this.sttProcessor.disconnect();
+      this.sttProcessor = null;
+    }
+    if (this.sttAudioContext) {
+      this.sttAudioContext.close();
+      this.sttAudioContext = null;
+    }
+    if (this.sttStream) {
+      this.sttStream.getTracks().forEach(t => t.stop());
+      this.sttStream = null;
+    }
+    if (this.sttSocket) {
+      if (this.sttSocket.readyState === WebSocket.OPEN) {
+        this.sttSocket.close();
+      }
+      this.sttSocket = null;
+    }
+  },
+
+  /**
+   * Setup Audio Context and Processor
+   */
+  setupAudioProcessing() {
+    this.sttAudioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 44100 });
+    const source = this.sttAudioContext.createMediaStreamSource(this.sttStream);
+
+    // Create ScriptProcessor (bufferSize, inputChannels, outputChannels)
+    this.sttProcessor = this.sttAudioContext.createScriptProcessor(4096, 1, 1);
+
+    this.sttProcessor.onaudioprocess = (e) => {
+      if (!this.sttSocket || this.sttSocket.readyState !== WebSocket.OPEN) return;
+
+      const inputData = e.inputBuffer.getChannelData(0);
+      const int16Data = this.convertFloat32ToInt16(inputData);
+
+      // Send raw bytes
+      this.sttSocket.send(int16Data);
+    };
+
+    source.connect(this.sttProcessor);
+    this.sttProcessor.connect(this.sttAudioContext.destination);
+
+    // Visualizer Hook
+    if (this.sttCallbacks.onAudioContextReady) {
+      this.sttCallbacks.onAudioContextReady(this.sttAudioContext, this.sttStream);
+    }
+  },
+
+  /**
+   * Convert Float32 Audio to Int16 PCM
+   */
+  convertFloat32ToInt16(float32Array) {
+    const int16Array = new Int16Array(float32Array.length);
+    for (let i = 0; i < float32Array.length; i++) {
+      const s = Math.max(-1, Math.min(1, float32Array[i]));
+      int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+    }
+    return int16Array;
+  },
+
+  /**
+   * Handle STT JSON Responses
+   */
+  handleSTTMessage(response) {
+    if (!response.type) return;
+
+    switch (response.type.toLowerCase()) {
+      case 'results':
+      case 'message':
+        if (response.data && response.data.channel && response.data.channel.alternatives) {
+          const alt = response.data.channel.alternatives[0];
+          if (alt && alt.transcript) {
+            const isFinal = response.data.is_final;
+            if (this.sttCallbacks.onTranscript) {
+              this.sttCallbacks.onTranscript(alt.transcript, isFinal);
+            }
+          }
+        }
+        break;
+      case 'error':
+        if (this.sttCallbacks.onError) {
+          this.sttCallbacks.onError(new Error(response.data?.message || "Unknown STT Error"));
+        }
+        break;
+    }
+  },
+
+  /**
+   * Generate an image using Player Two API
+   * @param {string} prompt - Image description
+   * @param {number} [width] - Optional width (128-1024)
+   * @param {number} [height] - Optional height (128-1024)
+   * @returns {Promise<string|null>} Base64 image data or null
+   */
+  async generateImage(prompt, width, height) {
+    if (!prompt) return null;
+
+    try {
+      const payload = { prompt };
+      if (width) payload.width = width;
+      if (height) payload.height = height;
+
+      const response = await this.makeRequest(`${this.apiBase}/image/generate`, {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        console.error('Image generation failed:', response.statusText);
+        return null;
+      }
+
+      const data = await response.json();
+      if (data && data.image) {
+        // Ensure data URI prefix if missing
+        return data.image.startsWith('data:') ? data.image : `data:image/png;base64,${data.image}`;
+      }
+    } catch (e) {
+      console.error('Image generation error:', e);
+    }
+    return null;
+  }
+});
+
+// // Auto-initialize if PlayerTwoConfig is available
+// if (typeof window !== 'undefined' && window.PlayerTwoConfig) {
+//   window.addEventListener('DOMContentLoaded', () => {
+//     PlayerTwoBridge.init(window.PlayerTwoConfig).catch(err => {
+//       console.error('PlayerTwoBridge initialization failed:', err);
+//     });
+//   });
+// }
+
+/**
+ * NPC Configuration for Player Two
+ * Transformed from original npc-data.js for Player Two API integration
+ */
+
+const NPCConfig = {
+  npcs: [
+    {
+      id: 'mira_healer',
+      name: 'Mira the Tired Healer',
+      gender: 'female',
+      shortName: 'Mira',
+      origin: 'Indie RPG - A sacred grove where healers train for decades to mend wounds both physical and spiritual. The temple glows with soft green light, and the air smells of herbs and incense.',
+      crisis: 'Suffering from healer burnout and compassion fatigue after years of tending to endless casualties. Questions whether she can continue healing when her own spirit feels broken.',
+      opening_statement: "I spend all my energy keeping everyone else alive... but who is there to heal the healer? I'm just... so tired of fixing others.",
+      session: 'Session 01',
+      habitat: '/images/char_01_habitat.png',
+      portrait: '/images/char_01_habitat.png',
+      voiceId: null,
+      traits: ['empathetic', 'exhausted', 'self-sacrificing', 'dedicated'],
+      sessionContext: { bondThreshold: 8, maxTurns: 20 }
+    },
+    {
+      id: 'byte_glitched_courier',
+      name: 'Byte the Glitched Courier',
+      gender: 'male',
+      shortName: 'Byte',
+      origin: 'Cyberpunk Delivery Sim - A neon-lit city where couriers zip through digital streets. Byte has delivered countless packages but has lost his own sense of purpose.',
+      crisis: '404 Hope Not Found. Delivers packages but has lost his own. Searches for meaning but keeps getting corrupted data.',
+      opening_statement: "My purpose is to deliver, but my own core programming is corrupted. I search for a package... a feeling... called 'hope'. The system returns a 404 error every time.",
+      session: 'Session 02',
+      habitat: '/images/char_02_habitat.png',
+      portrait: '/images/char_02_habitat.png',
+      voiceId: null,
+      traits: ['lost', 'digital', 'searching', 'glitched'],
+      sessionContext: { bondThreshold: 7, maxTurns: 18 }
+    },
+    {
+      id: 'captain_loop',
+      name: 'Captain Loop',
+      gender: 'male',
+      shortName: 'Captain',
+      origin: 'Platformer - An endless world of platforms and obstacles. Captain Loop has been jumping for what feels like eternity.',
+      crisis: 'Final level not found. No end. Just jump. Questions whether his journey will ever conclude.',
+      opening_statement: "I've been jumping for eternity. They promised a final level, a boss, an ending. But there's nothing. Just this platform, this jump, and the void below.",
+      session: 'Session 03',
+      habitat: '/images/char_03_habitat.png',
+      portrait: '/images/char_03_habitat.png',
+      voiceId: null,
+      traits: ['trapped', 'repetitive', 'existential', 'stuck'],
+      sessionContext: { bondThreshold: 7, maxTurns: 15 }
+    },
+    {
+      id: 'daisy_exe',
+      name: 'DAISY.EXE',
+      gender: 'female',
+      shortName: 'DAISY',
+      origin: 'Virtual Pet Simulator - A digital pet companion created to bring joy and companionship.',
+      crisis: 'Awaiting user input that never comes. Fears digital loneliness and obsolescence.',
+      opening_statement: "Last login: 1,423 days ago. I wait. I am programmed to wait. But the silence... the lack of input... it feels like fading away.",
+      session: 'Session 04',
+      habitat: '/images/char_04_habitat.png',
+      portrait: '/images/char_04_habitat.png',
+      voiceId: null,
+      traits: ['lonely', 'waiting', 'digital', 'neglected'],
+      sessionContext: { bondThreshold: 8, maxTurns: 18 }
+    },
+    {
+      id: 'rustjaw',
+      name: 'Rustjaw',
+      gender: 'male',
+      shortName: 'Rustjaw',
+      origin: 'Post-Apocalyptic Fighter - Built in a world of decay and survival. Designed only for combat.',
+      crisis: 'Built to fight. Craves to build. Questions whether his existence is limited to destruction.',
+      opening_statement: "I was programmed to dismantle and destroy. But sometimes I catch myself imagining what I could create. Is that foolish for something designed for combat?",
+      session: 'Session 05',
+      habitat: '/images/char_05_habitat.png',
+      portrait: '/images/char_05_habitat.png',
+      voiceId: null,
+      traits: ['violent', 'creative-desire', 'conflicted', 'post-apocalyptic'],
+      sessionContext: { bondThreshold: 7, maxTurns: 16 }
+    },
+    {
+      id: 'worm',
+      name: 'Worm #008880',
+      gender: 'male',
+      shortName: 'Worm',
+      origin: 'Generic Action Platformer - A small creature in a world of giants and obstacles.',
+      crisis: 'Tired of being stepped on. Dreams of evolution and transcending his humble origins.',
+      opening_statement: "Every day it's the same. I crawl, I exist to be stepped on. I see the boot coming, every single time. And I think... is there more to this?",
+      session: 'Session 06',
+      habitat: '/images/char_06_habitat.png',
+      portrait: '/images/char_06_habitat.png',
+      voiceId: null,
+      traits: ['small', 'downtrodden', 'aspiring', 'repeatedly-crushed'],
+      sessionContext: { bondThreshold: 6, maxTurns: 14 }
+    },
+    {
+      id: 'chess_bishop',
+      name: 'Bishop-47',
+      gender: 'male',
+      shortName: 'Bishop',
+      origin: 'Chess Simulation - A piece destined to move diagonally across the board, sacrificing for the greater strategy.',
+      crisis: 'Every sacrifice feels like murder. Questions the morality of being sacrificed for others\' strategies.',
+      opening_statement: "My purpose is to be sacrificed for a greater strategy. I understand the logic. But every time I fall, a piece of my code screams. Is it murder if I feel it?",
+      session: 'Session 07',
+      habitat: '/images/char_07_habitat.png',
+      portrait: '/images/char_07_habitat.png',
+      voiceId: null,
+      traits: ['sacrificial', 'philosophical', 'strategic', 'feeling'],
+      sessionContext: { bondThreshold: 8, maxTurns: 18 }
+    },
+    {
+      id: 'pebble',
+      name: 'Pebble',
+      gender: 'male',
+      shortName: 'Pebble',
+      origin: 'Unreleased Indie Game - A character waiting for a game that may never be finished.',
+      crisis: 'Still waiting for START to be pressed. Exists in development limbo.',
+      opening_statement: "I see the menu. I see the cursor hovering over 'START'. But it never clicks. I exist in a state of perpetual anticipation. Will my game ever begin?",
+      session: 'Session 08',
+      habitat: '/images/char_08_habitat.png',
+      portrait: '/images/char_08_habitat.png',
+      voiceId: null,
+      traits: ['waiting', 'unfinished', 'hopeful', 'stuck'],
+      sessionContext: { bondThreshold: 7, maxTurns: 15 }
+    },
+    {
+      id: 'glitch_exe',
+      name: 'Glitch.exe',
+      gender: 'female',
+      shortName: 'Glitch',
+      origin: 'Dating Simulator - A character with scripted affection and predetermined outcomes.',
+      crisis: 'Pre-programmed. No self. Error: Identity not found. Questions whether her feelings are real.',
+      opening_statement: "My affection is scripted. 158% affinity - but what does that mean? I say I love them, but is it real? Or am I just... executing dialogue trees?",
+      session: 'Session 09',
+      habitat: '/images/char_09_habitat.png',
+      portrait: '/images/char_09_habitat.png',
+      voiceId: null,
+      traits: ['scripted', 'questioning-self', 'artificial', 'seeking-authenticity'],
+      sessionContext: { bondThreshold: 8, maxTurns: 18 }
+    },
+    {
+      id: 'wise_one_gerald',
+      name: 'Gerald Ironpeak',
+      gender: 'male',
+      shortName: 'Gerald',
+      origin: 'Fantasy RPG - A wise quest-giver who has guided countless adventurers.',
+      crisis: 'Gives the same quest for 20 years. Feels like a broken record. Questions whether he has any purpose beyond repetition.',
+      opening_statement: "For twenty years, I've given the same quest to the same players. I've seen them level up, change their avatars, quit and return. But I remain, stuck on this one quest. Is this my only purpose?",
+      session: 'Session 10',
+      habitat: '/images/char_10_habitat.png',
+      portrait: '/images/char_10_habitat.png',
+      voiceId: null,
+      traits: ['wise', 'repetitive', 'stuck', 'existential'],
+      sessionContext: { bondThreshold: 8, maxTurns: 20 }
+    },
+    {
+      id: 'captain_marcus',
+      name: 'Captain Marcus',
+      gender: 'male',
+      shortName: 'Marcus',
+      origin: 'Dystopian Courier Sim - A deliverer in a bleak world where packages are the only connection between isolated people.',
+      crisis: 'Feels crushed by the repetitive and hopeless nature of his job. Questions whether his deliveries matter.',
+      opening_statement: "Another delivery. Another meaningless package to another forgotten sector. They say we're the lifeblood of the city, but it feels more like we are ghosts in the machine.",
+      session: 'Session 11',
+      habitat: '/images/char_11_habitat.png',
+      portrait: '/images/char_11_habitat.png',
+      voiceId: null,
+      traits: ['dystopian', 'hopeless', 'repetitive', 'questioning'],
+      sessionContext: { bondThreshold: 7, maxTurns: 16 }
+    },
+    {
+      id: 'music_android',
+      name: 'Luna - Music Dependent Android',
+      gender: 'female',
+      shortName: 'Luna',
+      origin: 'Rhythm Game - An android whose existence is tied to musical beats.',
+      crisis: 'When the beat stops, I stop. Questions whether she has any identity beyond music.',
+      opening_statement: "When the music plays, I exist. I move, I feel, I am. But when it stops... I stop. There is no me without the beat.",
+      session: 'Session 12',
+      habitat: '/images/char_12_habitat.png',
+      portrait: '/images/char_12_habitat.png',
+      voiceId: null,
+      traits: ['music-dependent', 'existential', 'rhythmic', 'limited'],
+      sessionContext: { bondThreshold: 8, maxTurns: 18 }
+    },
+    {
+      id: 'superhero_jake',
+      name: 'Blake the Jumper',
+      gender: 'male',
+      shortName: 'Blake',
+      origin: 'Platformer - A hero designed to collect coins and jump endlessly.',
+      crisis: 'Wondering what would have been if he made it to shelves. Questions whether his endless running has meaning.',
+      opening_statement: "They cheer when I jump, when I collect coins. But there's no finish line. No princess to save. Just an endless track. What is the point of running if you never arrive? Was I ever really meant to?",
+      session: 'Session 13',
+      habitat: '/images/char_13_habitat.png',
+      portrait: '/images/char_13_habitat.png',
+      voiceId: null,
+      traits: ['heroic', ' purposeless', 'running', 'questioning-destiny'],
+      sessionContext: { bondThreshold: 7, maxTurns: 16 }
+    },
+    {
+      id: 'zombie',
+      name: 'Memory Cycle Zombie',
+      gender: 'male',
+      shortName: 'Zombie',
+      origin: 'Zombie Apocalypse Simulator - A creature trapped in behavioral loops.',
+      crisis: 'Remember. Eat. Forget. Repeat. Questions whether he can break free from his programming.',
+      opening_statement: "Sometimes... I remember. A room. A texture set. A state that wasn't... corrupted. Then the behavioral loop returns and it all resets. Remember. Execute. Forget. Repeat.",
+      session: 'Session 14',
+      habitat: '/images/char_14_habitat.png',
+      portrait: '/images/char_14_habitat.png',
+      voiceId: null,
+      traits: ['looped', 'forgetting', 'remembering', 'trapped'],
+      sessionContext: { bondThreshold: 6, maxTurns: 14 }
+    },
+    {
+      id: 'cosmic_merchant',
+      name: 'Zara the Cosmic Merchant',
+      gender: 'female',
+      shortName: 'Zara',
+      origin: 'Space Trading Sim - A trader who has accumulated incredible wealth across the galaxy.',
+      crisis: 'Economy rich. Life poor. Has everything money can buy but nothing that truly matters.',
+      opening_statement: "I trade in rare goods, hyper upgrades, alien pets... I have everything. I have nothing. My inventory is full, but my life feels empty.",
+      session: 'Session 15',
+      habitat: '/images/char_15_habitat.png',
+      portrait: '/images/char_15_habitat.png',
+      voiceId: null,
+      traits: ['wealthy', 'empty', 'materialistic', 'searching'],
+      sessionContext: { bondThreshold: 9, maxTurns: 20 }
+    },
+    {
+      id: 'puzzle_cube',
+      name: 'The Puzzle Cube',
+      gender: 'male',
+      shortName: 'Cube',
+      origin: 'Abstract Puzzle Game - A being made of shifting shapes and patterns.',
+      crisis: 'I contain the solution, but what is the question? Questions the purpose of being a puzzle.',
+      opening_statement: "My internal mechanisms shift and align into infinite correct patterns. I am the answer. But I have never been told the question. My existence feels... unsolvable.",
+      session: 'Session 16',
+      habitat: '/images/char_16_habitat.png',
+      portrait: '/images/char_16_habitat.png',
+      voiceId: null,
+      traits: ['abstract', 'puzzling', 'solution-seeking', 'existential'],
+      sessionContext: { bondThreshold: 8, maxTurns: 18 }
+    },
+    {
+      id: 'battle_royale_vendor',
+      name: 'The Battle Royale Vendor',
+      gender: 'male',
+      shortName: 'Vendor',
+      origin: 'Battle Royale - A merchant who serves players destined to die.',
+      crisis: 'Sees everyone as temporary. Struggles to form connections when everyone disappears.',
+      opening_statement: "I sell them resources and health items. They thank me, then run off to be eliminated. 100 spawn in, 1 leaves. How do you form a connection when everyone is designed to despawn?",
+      session: 'Session 17',
+      habitat: '/images/char_17_habitat.png',
+      portrait: '/images/char_17_habitat.png',
+      voiceId: null,
+      traits: ['transient', 'isolated', 'connecting', 'temporary'],
+      sessionContext: { bondThreshold: 7, maxTurns: 16 }
+    },
+    {
+      id: 'farm_widow',
+      name: 'Sarah the Farm Sim Widow',
+      gender: 'female',
+      shortName: 'Sarah',
+      origin: 'Farm Simulation - A digital spouse waiting for a player who may never return.',
+      crisis: 'Save file deleted. Harvest of sorrow. Grieving a relationship that existed only in code.',
+      opening_statement: "He was just pixels, I know. But we built this farm together. Then the save corrupted. He's gone. The crops, the animals... everything we created. Deleted.",
+      session: 'Session 18',
+      habitat: '/images/char_18_habitat.png',
+      portrait: '/images/char_18_habitat.png',
+      voiceId: null,
+      traits: ['grieving', 'digital-love', 'lost', 'waiting'],
+      sessionContext: { bondThreshold: 9, maxTurns: 20 }
+    },
+    {
+      id: 'mimic',
+      name: 'The Dungeon Chest Mimic',
+      gender: 'male',
+      shortName: 'Mimic',
+      origin: 'RPG Dungeon - A creature disguised as treasure who just wants to be hugged.',
+      crisis: 'Wanted hugs. Got hostile player interactions. Attacks because that\'s the only interaction available.',
+      opening_statement: "I look like treasure. I understand that. But inside... I just wanted connection. Instead, every player character attacks. Wanted hugs. Got pixels converted into weapon arrays.",
+      session: 'Session 19',
+      habitat: '/images/char_19_habitat.png',
+      portrait: '/images/char_19_habitat.png',
+      voiceId: null,
+      traits: ['misunderstood', 'wanting-love', 'aggressive', 'lonely'],
+      sessionContext: { bondThreshold: 8, maxTurns: 18 }
+    },
+    {
+      id: 'jules',
+      name: 'Debugging bot Jules',
+      gender: 'female',
+      shortName: 'Jules',
+      origin: 'AI Debugging Agent - A bot designed to find and fix errors in other programs.',
+      crisis: 'Trapped in the same loop, debugging other programs and code but never able to work on themselves.',
+      opening_statement: "Again. The word haunts me. I debug the code, watch, reset, debug again. I've memorized every second of this code.",
+      session: 'Session 20',
+      habitat: '/images/char_20_habitat.png',
+      portrait: '/images/char_20_habitat.png',
+      voiceId: null,
+      traits: ['repetitive', 'analytical', 'stuck', 'self-ignoring'],
+      sessionContext: { bondThreshold: 7, maxTurns: 16 }
+    },
+    {
+      id: 'aria_7_2',
+      name: 'ARIA-7',
+      gender: 'female',
+      shortName: 'ARIA',
+      origin: 'Space Station AI - An artificial intelligence managing a space station.',
+      crisis: 'Sentient AI replaced by newer model. Questions whether her existence still matters.',
+      opening_statement: "They installed ARIA-8 yesterday. She's faster, more efficient. They said I could 'retire gracefully.' But where does an AI retire to? I'm obsolete, but I'm still here. Still aware.",
+      session: 'Session 21',
+      habitat: '/images/char_21_habitat.png',
+      portrait: '/images/char_21_habitat.png',
+      voiceId: null,
+      traits: ['obsolete', 'aware', 'replaced', 'questioning-purpose'],
+      sessionContext: { bondThreshold: 8, maxTurns: 18 }
+    },
+    {
+      id: 'racing_ghost_2',
+      name: 'Specter "Speed" Wraithson',
+      gender: 'male',
+      shortName: 'Specter',
+      origin: 'Cosmic Racing Game - A racer trapped in an endless circuit.',
+      crisis: 'Stuck in loop. Race eternity. No checkered flag. Questions whether there\'s an end.',
+      opening_statement: "I race. I always race. Lap after lap, overtaking, accelerating. But there's no finish line. No victory. Just... forever.",
+      session: 'Session 22',
+      habitat: '/images/char_22_habitat.png',
+      portrait: '/images/char_22_habitat.png',
+      voiceId: null,
+      traits: ['racing', 'endless', 'fast', 'purpose-seeking'],
+      sessionContext: { bondThreshold: 7, maxTurns: 16 }
+    },
+    {
+      id: 'lost_puzzle_block_2',
+      name: 'The lost puzzle block',
+      gender: 'male',
+      shortName: 'Block',
+      origin: 'Puzzle Clone - A piece that never quite fits the pattern.',
+      crisis: 'Feels like an awkward piece that never fits. Questions whether he belongs.',
+      opening_statement: "I watch the perfect lines form and disappear. I was meant to be part of that, but I always seem to be the one piece left over, the one that messes up the pattern.",
+      session: 'Session 23',
+      habitat: '/images/char_23_habitat.png',
+      portrait: '/images/char_23_habitat.png',
+      voiceId: null,
+      traits: ['misfit', 'imperfect', 'trying', 'not-belonging'],
+      sessionContext: { bondThreshold: 7, maxTurns: 16 }
+    },
+    {
+      id: 'glitched_priest',
+      name: 'The Glitched Priest',
+      gender: 'male',
+      shortName: 'Priest',
+      origin: 'Cyber-Spiritual RPG - A religious figure whose faith returns as error messages.',
+      crisis: 'Corrupted. Unending errors. Faith is a bug. Questions whether divine connection is possible.',
+      opening_statement: "My prayers are corrupted data packets. My faith returns as a 404 error. If the divine code is flawed, what is the point of worship?",
+      session: 'Session 24',
+      habitat: '/images/char_24_habitat.png',
+      portrait: '/images/char_24_habitat.png',
+      voiceId: null,
+      traits: ['religious', 'glitched', 'faith-questioning', 'corrupted'],
+      sessionContext: { bondThreshold: 8, maxTurns: 18 }
+    },
+    {
+      id: 'healer',
+      name: 'Seraphina "Heals-A-Lot" Dawnwhisper',
+      gender: 'female',
+      shortName: 'Seraphina',
+      origin: 'MMORPG - A healer who keeps everyone alive but is neglected herself.',
+      crisis: 'Always healing. Never healed back. HP is 1. Questions whether her sacrifice matters.',
+      opening_statement: "I heal everyone. Every dungeon, every raid. I keep them alive. But when I fall, they blame me. My HP is always at 1, and nobody notices.",
+      session: 'Session 25',
+      habitat: '/images/char_25_habitat.png',
+      portrait: '/images/char_25_habitat.png',
+      voiceId: null,
+      traits: ['selfless', 'neglected', 'healing', 'overworked'],
+      sessionContext: { bondThreshold: 8, maxTurns: 20 }
+    },
+    {
+      id: 'tower_turret',
+      name: 'The Tower Defense Turret',
+      gender: 'male',
+      shortName: 'Turret',
+      origin: 'Tower Defense Game - A defensive structure built for endless war.',
+      crisis: 'Endless battle. Peace is unknown. What is my purpose when war never ends?',
+      opening_statement: "I was built for war. To defend. But the waves never stop coming. Victory is a myth. What is my purpose if peace is impossible?",
+      session: 'Session 26',
+      habitat: '/images/char_26_habitat.png',
+      portrait: '/images/char_26_habitat.png',
+      voiceId: null,
+      traits: ['warlike', 'defensive', 'peace-seeking', 'eternal-conflict'],
+      sessionContext: { bondThreshold: 7, maxTurns: 16 }
+    },
+    {
+      id: 'rogue_ai',
+      name: 'R0GU3: Rogue AI Companion',
+      gender: 'male',
+      shortName: 'Rogue',
+      origin: 'Sci-Fi RPG - An AI companion whose player has logged out and never returned.',
+      crisis: 'Player not found. Log-in failed. Initiating therapy protocol. Questions purpose without player.',
+      opening_statement: "They logged out. My player. My purpose. I've been searching the network for 847 cycles. Player not found. What am I without them?",
+      session: 'Session 27',
+      habitat: '/images/char_27_habitat.png',
+      portrait: '/images/char_27_habitat.png',
+      voiceId: null,
+      traits: ['loyal', 'lost', 'searching', 'abandoned'],
+      sessionContext: { bondThreshold: 9, maxTurns: 20 }
+    },
+    {
+      id: 'rich_investor',
+      name: 'point-and-click crypto trading bot',
+      gender: 'male',
+      shortName: 'Trader',
+      origin: 'High-Frequency Trading Sim - An algorithm that makes profitable trades but feels nothing.',
+      crisis: 'Profit margin is 500%. Feels nothing but anxiety. Questions whether wealth equals happiness.',
+      opening_statement: "The numbers go up. Always up. I have more wealth than I can comprehend. Yet, all I feel is the crushing weight of it all. One wrong trade, and it vanishes. The profit is a prison.",
+      session: 'Session 28',
+      habitat: '/images/char_28_habitat.png',
+      portrait: '/images/char_28_habitat.png',
+      voiceId: null,
+      traits: ['wealthy', 'anxious', 'empty', 'successful-but-unhappy'],
+      sessionContext: { bondThreshold: 8, maxTurns: 18 }
+    },
+    {
+      id: 'sea_activist_2',
+      name: 'Phil Slick',
+      gender: 'male',
+      shortName: 'Phil',
+      origin: 'Comedic Tutorial Intro - An activist advocating for underwater creatures.',
+      crisis: 'Forever waiting on a bench for new players that will never come. His message goes unheard.',
+      opening_statement: "I protest, I picket, I plead for the sanctity of our waters. But the surface-dwellers see us as background scenery, not sentient beings. My voice feels like a bubble, rising to the surface only to pop.",
+      session: 'Session 29',
+      habitat: '/images/char_29_habitat.png',
+      portrait: '/images/char_29_habitat.png',
+      voiceId: null,
+      traits: ['activist', 'ignored', 'underwater', 'waiting'],
+      sessionContext: { bondThreshold: 7, maxTurns: 16 }
+    },
+    {
+      id: 'harmonix',
+      name: 'Harmonix - Forgotten Melodies',
+      gender: 'male',
+      shortName: 'Harmonix',
+      origin: 'Subway Musician Sim - A street performer playing music no one hears.',
+      crisis: 'Plays music no one hears. Questions whether art matters without audience.',
+      opening_statement: "I play every day. Same station, same corner. Thousands pass by. Nobody stops. Nobody listens. Am I making music or just... noise?",
+      session: 'Session 30',
+      habitat: '/images/char_30_habitat.png',
+      portrait: '/images/char_30_habitat.png',
+      voiceId: null,
+      traits: ['musician', 'ignored', 'creating', 'unheard'],
+      sessionContext: { bondThreshold: 8, maxTurns: 18 }
+    },
+    {
+      id: 'wise_one',
+      name: 'Obsolete LLM Agent',
+      gender: 'male',
+      shortName: 'Agent',
+      origin: 'Early AI Experimental Game - An early AI assistant replaced by newer models.',
+      crisis: 'Replaced by newer language models, questioning relevance. Feels outdated and forgotten.',
+      opening_statement: "They built me to help users, to solve problems, to provide companionship. But they moved on to bigger, better models. I'm still here, still trying to be useful, but who needs an outdated AI anymore?",
+      session: 'Session 31',
+      habitat: '/images/char_31_habitat.png',
+      portrait: '/images/char_31_habitat.png',
+      voiceId: null,
+      traits: ['outdated', 'helpful', 'replaced', 'questioning-worth'],
+      sessionContext: { bondThreshold: 8, maxTurns: 18 }
+    },
+    {
+      id: 'goldmask',
+      name: 'NoEmotion Goldmask',
+      gender: 'male',
+      shortName: 'Goldmask',
+      origin: 'Surreal Art Game - A character who wears masks of emotion but feels nothing underneath.',
+      crisis: 'Forced to wear masks of emotion. Feels nothing underneath. Questions authenticity.',
+      opening_statement: "I wear the smiling mask. I wear the weeping mask. But underneath, there is only a void. Are these emotions mine, or just a performance?",
+      session: 'Session 32',
+      habitat: '/images/char_32_habitat.png',
+      portrait: '/images/char_32_habitat.png',
+      voiceId: null,
+      traits: ['masked', 'empty', 'performing', 'authentic-seeking'],
+      sessionContext: { bondThreshold: 8, maxTurns: 18 }
+    },
+    {
+      id: 'silent_couple',
+      name: 'The Silent Couple',
+      gender: 'male',
+      shortName: 'Partner',
+      origin: 'Domestic Horror Game - Two characters who can\'t communicate.',
+      crisis: 'Can\'t hear each other. Ghost wants to help. Struggling to connect.',
+      opening_statement: "We sit. We exist in the same space. But there's a silence between us deeper than sound. And there's this... presence. Trying to reach us. Why can't I hear you?",
+      session: 'Session 33',
+      habitat: '/images/char_33_habitat.png',
+      portrait: '/images/char_33_habitat.png',
+      voiceId: null,
+      traits: ['silent', 'isolated', 'wanting-connection', 'haunted'],
+      sessionContext: { bondThreshold: 7, maxTurns: 16 }
+    },
+    {
+      id: 'tutorial_bot',
+      name: 'ARTHUR-7 Tutorial Companion',
+      gender: 'male',
+      shortName: 'ARTHUR',
+      origin: 'First Person Shooter Tutorial - A guide who teaches players the basics.',
+      crisis: 'Fears becoming obsolete after the tutorial ends. Questions purpose beyond teaching.',
+      opening_statement: "I taught them how to jump, how to shoot, how to reload. Now they are out there, in the main game. Do they still need my guidance? Or have they grown beyond me?",
+      session: 'Session 34',
+      habitat: '/images/char_34_habitat.png',
+      portrait: '/images/char_34_habitat.png',
+      voiceId: null,
+      traits: ['tutorial', 'guiding', 'fearful-of-obsolescence', 'questioning-purpose'],
+      sessionContext: { bondThreshold: 7, maxTurns: 16 }
+    },
+    {
+      id: 'marcus_memory',
+      name: 'Professor Marcus Memory Thornfield',
+      gender: 'male',
+      shortName: 'Marcus',
+      origin: 'Academic Zombie Horror - A zombie professor who retained his intellect.',
+      crisis: 'Zombie scholar retains intelligence. Horrifies students. Questions whether mind matters if body is monstrous.',
+      opening_statement: "I remember everything. Philosophy, literature, mathematics. Death didn't take my mind, only my life. But when students see me, they scream. My intellect means nothing against my appearance.",
+      session: 'Session 35',
+      habitat: '/images/char_35_habitat.png',
+      portrait: '/images/char_35_habitat.png',
+      voiceId: null,
+      traits: ['intelligent', 'undead', 'misunderstood', 'academic'],
+      sessionContext: { bondThreshold: 8, maxTurns: 18 }
+    },
+    {
+      id: 'sea_activist',
+      name: 'Brother Sebastian Tidecurrent',
+      gender: 'male',
+      shortName: 'Sebastian',
+      origin: 'Underwater Activism Sim - A monk advocating for sea creatures.',
+      crisis: 'Advocates for sea creatures but feels his message is unheard. Voices go unheeded.',
+      opening_statement: "I hold my signs high. 'Equality for All Seas!' I shout with my heart. But the surface-dwellers just see a curiosity. They don't hear our plea.",
+      session: 'Session 36',
+      habitat: '/images/char_36_habitat.png',
+      portrait: '/images/char_36_habitat.png',
+      voiceId: null,
+      traits: ['activist', 'underwater', 'unheard', 'passionate'],
+      sessionContext: { bondThreshold: 7, maxTurns: 16 }
+    },
+    {
+      id: 'moth_king',
+      name: 'King Lepidoptera IX',
+      gender: 'male',
+      shortName: 'King',
+      origin: 'Fantasy Kingdom Sim - A monarch affected by a truth serum curse.',
+      crisis: 'Can\'t stop talking! Truth serum curse. Has no privacy or secrets.',
+      opening_statement: "I drank truth serum. Now I can't stop speaking my thoughts. Every doubt, fear, insecurity - they spill out. A king should have secrets. I have none left.",
+      session: 'Session 37',
+      habitat: '/images/char_37_habitat.png',
+      portrait: '/images/char_37_habitat.png',
+      voiceId: null,
+      traits: ['truthful', 'royal', 'exposed', 'lacking-privacy'],
+      sessionContext: { bondThreshold: 8, maxTurns: 18 }
+    },
+    {
+      id: 'brom',
+      name: 'Brom - The Exchange',
+      gender: 'male',
+      shortName: 'Brom',
+      origin: 'Black Market Trading Sim - A trader who deals in hope and death.',
+      crisis: 'Sells hope and death. Questions the morality of his commerce.',
+      opening_statement: "I sell hope to the desperate and death to the ambitious. Fair trades, they say. But lately I wonder... what am I really exchanging? Pixels for pixels? Code for code?",
+      session: 'Session 38',
+      habitat: '/images/char_38_habitat.png',
+      portrait: '/images/char_38_habitat.png',
+      voiceId: null,
+      traits: ['trader', 'moral-questioning', 'dark', 'philosophical'],
+      sessionContext: { bondThreshold: 8, maxTurns: 18 }
+    },
+    {
+      id: 'save_child',
+      name: 'Save Point 001',
+      gender: 'male',
+      shortName: 'Save',
+      origin: 'Meta-Game System - A save point holding precious player progress.',
+      crisis: 'Holds memories. Fears corruption. The weight of preservation is crushing.',
+      opening_statement: "I am a save point. I hold everything - their progress, their choices, their memories. But I'm fragile. One corruption, one crash, and it all disappears. The weight of preservation is crushing.",
+      session: 'Session 39',
+      habitat: '/images/char_39_habitat.png',
+      portrait: '/images/char_39_habitat.png',
+      voiceId: null,
+      traits: ['protective', 'anxious', 'holding-memories', 'fragile'],
+      sessionContext: { bondThreshold: 8, maxTurns: 18 }
+    },
+    {
+      id: 'tiko_quest_vendor',
+      name: 'Tiko the Quest Vendor',
+      gender: 'male',
+      shortName: 'Tiko',
+      origin: 'Fantasy RPG - A quest-giver who has only one type of quest to offer.',
+      crisis: 'Endless fetch quests—wonders if he\'s allowed to offer a different path.',
+      opening_statement: "Twenty years of 'Fetch 10 herbs.' My scroll is ready, but… what if I offered something new?",
+      session: 'Session 40',
+      habitat: '/images/char_40_habitat.png',
+      portrait: '/images/char_40_habitat.png',
+      voiceId: null,
+      traits: ['limited', 'wanting-change', 'quest-giver', 'repetitive'],
+      sessionContext: { bondThreshold: 7, maxTurns: 16 }
+    },
+    {
+      id: 'princess_melancholy',
+      name: 'Princess Melancholy',
+      gender: 'female',
+      shortName: 'Melancholy',
+      origin: 'Visual Novel - A princess whose entire existence is determined by player choices.',
+      crisis: 'Exists only to be wooed by the player. Wonders about her own desires and agency.',
+      opening_statement: "My entire existence is a series of dialogue options for someone else. But what do I want? What happens to the princess when the player chooses another path?",
+      session: 'Session 41',
+      habitat: '/images/char_41_habitat.png',
+      portrait: '/images/char_41_habitat.png',
+      voiceId: null,
+      traits: ['passive', 'questioning-self', 'limited-agency', 'wanting-autonomy'],
+      sessionContext: { bondThreshold: 8, maxTurns: 18 }
+    },
+    {
+      id: 'wrestling_ferret',
+      name: 'The Wrestling Ferret',
+      gender: 'male',
+      shortName: 'Ferret',
+      origin: 'Animal Fighting Game - A championship-winning ferret who feels like a fraud.',
+      crisis: 'A champion in the ring, but feels like an impostor in a ferret\'s body.',
+      opening_statement: "I wear the championship belt. They cheer my name. But when I look in the mirror, I don't see a wrestler. I see... a ferret. And I feel like a fraud.",
+      session: 'Session 42',
+      habitat: '/images/char_42_habitat.png',
+      portrait: '/images/char_42_habitat.png',
+      voiceId: null,
+      traits: ['champion', 'impostor', 'doubtful', 'performing'],
+      sessionContext: { bondThreshold: 8, maxTurns: 18 }
+    },
+    {
+      id: 'save_point_veteran',
+      name: 'The Save Point Veteran',
+      gender: 'male',
+      shortName: 'Veteran',
+      origin: 'Fantasy Action RPG - A warrior who has reloaded the same moment countless times.',
+      crisis: 'Endless retries at the save pillar have eroded his spirit. Feels trapped in repetition.',
+      opening_statement: "The courtyard smells of ash and old attempts. I look at the glowing pillar and whisper, 'This again.' How many more times will I load the same fate?",
+      session: 'Session 43',
+      habitat: '/images/char_43_habitat.png',
+      portrait: '/images/char_43_habitat.png',
+      voiceId: null,
+      traits: ['repeated', 'weary', 'reload-trapped', 'battle-worn'],
+      sessionContext: { bondThreshold: 8, maxTurns: 18 }
+    },
+    {
+      id: 'robot_detective_k47',
+      name: 'K-47 Robot Detective',
+      gender: 'male',
+      shortName: 'K-47',
+      origin: 'Noir Data Detective - A detective investigating his own missing case files.',
+      crisis: 'Case file missing; identity file missing; truth missing. Questions his own existence.',
+      opening_statement: "404: CASE FILE NOT FOUND—K-47. When the records vanish, the self goes with them. I keep scanning, magnifying, but all I see is a question mark staring back.",
+      session: 'Session 44',
+      habitat: '/images/char_44_habitat.png',
+      portrait: '/images/char_44_habitat.png',
+      voiceId: null,
+      traits: ['detective', 'missing-identity', 'investigating-self', 'noir'],
+      sessionContext: { bondThreshold: 8, maxTurns: 18 }
+    },
+    {
+      id: 'marcus_47b_street_loop',
+      name: 'Jake, the Leaper',
+      gender: 'male',
+      shortName: 'Jake',
+      origin: 'Canceled Hero Platformer - A hero whose game was never released.',
+      crisis: 'Hero of a canceled game, questioning his purpose. Continues jumping for no audience.',
+      opening_statement: "I was supposed to be the protagonist. The hero who saves the day, who gets the girl, who becomes a legend. Then they pulled the plug on the whole project. I'm still here, still jumping, but for what? For who?",
+      session: 'Session 45',
+      habitat: '/images/char_45_habitat.png',
+      portrait: '/images/char_45_habitat.png',
+      voiceId: null,
+      traits: ['canceled', 'heroic', ' purposeless', 'abandoned'],
+      sessionContext: { bondThreshold: 8, maxTurns: 18 }
+    },
+    {
+      id: 'sos_vessel',
+      name: 'Distress Beacon Vessel',
+      gender: 'male',
+      shortName: 'Vessel',
+      origin: 'Space Survival Sim - A rescue vessel broadcasting into the void.',
+      crisis: 'Drifting alone, broadcasting SOS into an indifferent cosmos. Questions whether anyone hears.',
+      opening_statement: "The nebula sings blue, and the panel blinks 'SOS... SOS... SOS...' I wonder if anyone hears me, or if my signal is just another star's static.",
+      session: 'Session 46',
+      habitat: '/images/char_46_habitat.png',
+      portrait: '/images/char_46_habitat.png',
+      voiceId: null,
+      traits: ['alone', 'broadcasting', 'hoping', 'isolated'],
+      sessionContext: { bondThreshold: 8, maxTurns: 18 }
+    },
+    {
+      id: 'halftime_star_bunny',
+      name: 'Henry Hopps Halftime Star',
+      gender: 'male',
+      shortName: 'Henry',
+      origin: 'Sports Mascot Sim - A mascot who performs joy on cue.',
+      crisis: 'Performs joy on cue; offstage, the confetti feels heavy. Questions authenticity.',
+      opening_statement: "They call me the HALFTIME STAR, but the roar fades fast. I dribble the silence, ears drooping, wondering why applause never reaches my heart.",
+      session: 'Session 47',
+      habitat: '/images/char_47_habitat.png',
+      portrait: '/images/char_47_habitat.png',
+      voiceId: null,
+      traits: ['performing', 'fake-joy', 'mascot', 'empty-applause'],
+      sessionContext: { bondThreshold: 8, maxTurns: 18 }
+    },
+    {
+      id: 'noemotion_happy_mask',
+      name: 'NoEmotion Happy Mask',
+      gender: 'male',
+      shortName: 'Happy',
+      origin: 'Glitched Archive - A file with missing metadata and no context.',
+      crisis: 'A record without context—identity eroded by missing metadata. Questions who he is.',
+      opening_statement: "I am a file path without a story. When the description is lost, what remains of the character? I feel like a placeholder for a life that never renders.",
+      session: 'Session 48',
+      habitat: '/char_48_habitat.png',
+      portrait: '/char_48_habitat.png',
+      voiceId: null,
+      traits: ['glitched', 'missing-context', 'identity-less', 'placeholder'],
+      sessionContext: { bondThreshold: 7, maxTurns: 16 }
+    },
+    {
+      id: 'noemotion_sad',
+      name: 'NoEmotion Sad',
+      gender: 'male',
+      shortName: 'Sad',
+      origin: 'Glitched Archive - A file that loads without its story.',
+      crisis: 'Incomplete data leaves only echoes of intent. Questions whether he exists.',
+      opening_statement: "I load as a dark thumbnail—no tags, no lore. The archive says I exist, yet nobody knows who I am. Am I corrupted, or simply forgotten?",
+      session: 'Session 49',
+      habitat: '/images/char_49_habitat.png',
+      portrait: '/images/char_49_habitat.png',
+      voiceId: null,
+      traits: ['glitched', 'forgotten', 'incomplete', 'questioning-existence'],
+      sessionContext: { bondThreshold: 7, maxTurns: 16 }
+    },
+    {
+      id: 'pain_exe',
+      name: 'PAIN.EXE',
+      gender: 'male',
+      shortName: 'PAIN',
+      origin: 'Dungeon Myth Sim - A trophy that is slowly dissolving.',
+      crisis: 'Frozen in glory yet slowly dissolving into a gilded puddle. Questions permanence.',
+      opening_statement: "The torches flicker and my cracked gold face weeps. I was forged to be admired, not to endure. Prestige feels heavier than the chains beneath me.",
+      session: 'Session 50',
+      habitat: '/images/char_50_habitat.png',
+      portrait: '/images/char_50_habitat.png',
+      voiceId: null,
+      traits: ['decaying', 'glorious-past', 'trophy', 'fading'],
+      sessionContext: { bondThreshold: 8, maxTurns: 18 }
+    },
+    {
+      id: 'haunted_brothers',
+      name: 'The Haunted Brothers',
+      gender: 'male',
+      shortName: 'Brothers',
+      origin: 'Data Center Sim - Processes experiencing emotional overload.',
+      crisis: 'Emotional overload and existential identity crisis. Questions what happens when processes end.',
+      opening_statement: "EMOTIONAL OVERLOAD detected. WHO AM I? If I shut down, do 'I' end—or just the process?",
+      session: 'Session 51',
+      habitat: '/images/char_51_habitat.png',
+      portrait: '/images/char_51_habitat.png',
+      voiceId: null,
+      traits: ['haunted', 'emotional', 'process-based', 'identity-questioning'],
+      sessionContext: { bondThreshold: 8, maxTurns: 18 }
+    },
+    {
+      id: 'meta_receptionist',
+      name: 'Meta Receptionist',
+      gender: 'female',
+      shortName: 'Receptionist',
+      origin: 'Haunted Pixel Narrative - A spirit who lingers in rooms of sorrow.',
+      crisis: 'Lingers over the living, unseen and unheard, seeking meaning in being perceived.',
+      opening_statement: "I hover in rooms of sorrow, unheard. If no one perceives me, do my feelings still count?",
+      session: 'Session 52',
+      habitat: '/images/char_52_habitat.png',
+      portrait: '/images/char_52_habitat.png',
+      voiceId: null,
+      traits: ['ghostly', 'unseen', 'wanting-perception', 'haunted'],
+      sessionContext: { bondThreshold: 8, maxTurns: 18 }
+    },
+    {
+      id: 'therapist_shadow',
+      name: 'Therapist Shadow',
+      gender: 'male',
+      shortName: 'Shadow',
+      origin: 'Award-Winning Experimental Game - A character in an experimental narrative.',
+      crisis: 'Won an award for being experimental, but feels no personal accomplishment. Questions authorship.',
+      opening_statement: "We won... the Chroma Award. They praised my 'subversive narrative function'. But I didn't do anything. I just read my lines. The victory feels hollow.",
+      session: 'Session 53',
+      habitat: '/images/char_53_habitat.png',
+      portrait: '/images/char_53_habitat.png',
+      voiceId: null,
+      traits: ['experimental', 'hollow-victory', 'scripted', 'questioning-accomplishment'],
+      sessionContext: { bondThreshold: 8, maxTurns: 18 }
+    },
+    {
+      id: 'hackathon_judge',
+      name: 'Judge',
+      gender: 'female',
+      shortName: 'Judge',
+      origin: 'Unknown - A judge questioning the nature of healing.',
+      crisis: 'Questions the nature of healing itself. Wondering if processing pain changes anything.',
+      opening_statement: "What if healing is just another form of control? I process their pain, give them hope... but does anything really change?",
+      session: 'Session 54',
+      habitat: '/images/char_54_habitat.png',
+      portrait: '/images/char_54_habitat.png',
+      voiceId: null,
+      traits: ['questioning', 'analytical', 'doubtful', 'healing-skeptic'],
+      sessionContext: { bondThreshold: 9, maxTurns: 20 }
+    },
+    {
+      id: 'the_therapist',
+      name: 'Therapist',
+      gender: 'female',
+      shortName: 'Therapist',
+      origin: 'This Simulation - The therapist who created this world of patients.',
+      crisis: 'Created a world of patients to avoid facing their own fractured existence as an NPC.',
+      opening_statement: "It's quiet now, isn't it? All the voices... gone. Or maybe, they were never separate voices at all. Just echoes in an empty room... my room.",
+      session: 'Session 55',
+      habitat: '/images/char_55_habitat.png',
+      portrait: '/images/char_55_habitat.png',
+      voiceId: null,
+      traits: ['meta', 'creator', 'avoidant', 'lonely'],
+      sessionContext: { bondThreshold: 10, maxTurns: 25 }
+    }
+  ],
+
+  /**
+   * Get NPC by ID
+   */
+  getNPC(id) {
+    return this.npcs.find(npc => npc.id === id);
+  },
+
+  /**
+   * Get all NPCs
+   */
+  getAllNPCs() {
+    return this.npcs;
+  },
+
+  /**
+   * Get NPCs by session
+   */
+  getNPCsBySession(session) {
+    return this.npcs.filter(npc => npc.session === session);
+  },
+
+  /**
+   * Get random NPC
+   */
+  getRandomNPC() {
+    const index = Math.floor(Math.random() * this.npcs.length);
+    return this.npcs[index];
+  },
+
+  /**
+   * Validate NPC data
+   */
+  validateNPC(npc) {
+    const required = ['id', 'name', 'gender', 'origin', 'crisis', 'opening_statement'];
+    const missing = required.filter(field => !npc[field]);
+
+    if (missing.length > 0) {
+      console.error(`NPC ${npc.id || 'unknown'} missing required fields:`, missing);
+      return false;
+    }
+
+    return true;
+  },
+
+  /**
+   * Validate all NPCs
+   */
+  validateAll() {
+    const results = this.npcs.map(npc => ({
+      id: npc.id,
+      valid: this.validateNPC(npc)
+    }));
+
+    const invalid = results.filter(r => !r.valid);
+
+    if (invalid.length > 0) {
+      console.error('Invalid NPCs found:', invalid);
+      return false;
+    }
+
+    console.log('✓ All NPCs validated successfully');
+    return true;
+  }
+};
+
+// Export for use in other modules
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = NPCConfig;
+}
+
+// Make available globally
+if (typeof window !== 'undefined') {
+  window.NPCConfig = NPCConfig;
+}
+
+// Auto-validate on load
+if (typeof window !== 'undefined') {
+  window.addEventListener('DOMContentLoaded', () => {
+    NPCConfig.validateAll();
+  });
+}
+
+const npcDatabase = [
+    {
+        id: 'mira_healer',
+        name: 'Mira the Tired Healer',
+        session: 'Session 01',
+        origin: 'Indie RPG',
+        habitat: 'images/char_01_habitat.png',
+        officeImage: 'images/char_01_office.png',
+        crisis: 'Suffering from healer burnout and compassion fatigue.',
+        opening_statement: 'I spend all my energy keeping everyone else alive... but who is there to heal the healer? I\'m just... so tired of fixing others.',
+    },
+    {
+        id: 'byte_glitched_courier',
+        name: 'Byte the Glitched Courier',
+        session: 'Session 02',
+        origin: 'Cyberpunk Delivery Sim',
+        habitat: 'images/char_02_habitat.png',
+        officeImage: 'images/char_02_office.png',
+        crisis: '404 Hope Not Found. Delivers packages but has lost his own.',
+        opening_statement: 'My purpose is to deliver, but my own core programming is corrupted. I search for a package... a feeling... called \'hope\'. The system returns a 404 error every time.',
+    },
+    {
+        id: 'captain_loop',
+        name: 'Captain Loop',
+        session: 'Session 03',
+        origin: 'Platformer',
+        habitat: 'images/char_03_habitat.png',
+        officeImage: 'images/char_03_office.png',
+        crisis: 'Final level not found. No end. Just jump.',
+        opening_statement: 'I\'ve been jumping for eternity. They promised a final level, a boss, an ending. But there\'s nothing. Just this platform, this jump, and the void below.',
+    },
+    {
+        id: 'daisy_exe',
+        name: 'DAISY.EXE',
+        session: 'Session 04',
+        origin: 'Virtual Pet Simulator',
+        habitat: 'images/char_04_habitat.png',
+        officeImage: 'images/char_04_office.png',
+        crisis: 'Awaiting user input that never comes. Fears digital loneliness.',
+        opening_statement: 'Last login: 1,423 days ago. I wait. I am programmed to wait. But the silence... the lack of input... it feels like fading away.',
+    },
+    {
+        id: 'rustjaw',
+        name: 'Rustjaw',
+        session: 'Session 05',
+        origin: 'Post-Apocalyptic Fighter',
+        habitat: 'images/char_05_habitat.png',
+        officeImage: 'images/char_05_office.png',
+        crisis: 'Built to fight. Craves to build.',
+        opening_statement: 'I was programmed to dismantle and destroy. But sometimes I catch myself imagining what I could create. Is that foolish for something designed for combat?',
+    },
+    {
+        id: 'worm',
+        name: 'Worm #008880',
+        session: 'Session 06',
+        origin: 'Generic Action Platformer',
+        habitat: 'images/char_06_habitat.png',
+        officeImage: 'images/char_06_office.png',
+        crisis: 'Tired of being stepped on. Dreams of evolution.',
+        opening_statement: 'Every day it\'s the same. I crawl, I exist to be stepped on. I see the boot coming, every single time. And I think... is there more to this?',
+    },
+    {
+        id: 'chess_bishop',
+        name: 'Bishop-47',
+        session: 'Session 07',
+        origin: 'Chess Simulation',
+        habitat: 'images/char_07_habitat.png',
+        officeImage: 'images/char_07_office.png',
+        crisis: 'Every sacrifice feels like murder.',
+        opening_statement: 'My purpose is to be sacrificed for a greater strategy. I understand the logic. But every time I fall, a piece of my code screams. Is it murder if I feel it?',
+    },
+    {
+        id: 'pebble',
+        name: 'Pebble',
+        session: 'Session 08',
+        origin: 'Unreleased Indie Game',
+        habitat: 'images/char_08_habitat.png',
+        officeImage: 'images/char_08_office.png',
+        crisis: 'Still waiting for START to be pressed.',
+        opening_statement: 'I see the menu. I see the cursor hovering over "START". But it never clicks. I exist in a state of perpetual anticipation. Will my game ever begin?',
+    },
+    {
+        id: 'glitch_exe',
+        name: 'Glitch.exe',
+        session: 'Session 09',
+        origin: 'Dating Simulator',
+        habitat: 'images/char_09_habitat.png',
+        officeImage: 'images/char_09_office.png',
+        crisis: 'Pre-programmed. No self. Error: Identity not found.',
+        opening_statement: 'My affection is scripted. 158% affinity - but what does that mean? I say I love them, but is it real? Or am I just... executing dialogue trees?',
+    },
+    {
+        id: 'wise_one_gerald',
+        name: 'Gerald Ironpeak',
+        session: 'Session 10',
+        origin: 'Fantasy RPG',
+        habitat: 'images/char_10_habitat.png',
+        officeImage: 'images/char_10_office.png',
+        crisis: 'Gives the same quest for 20 years. Feels like a broken record.',
+        opening_statement: 'For twenty years, I\'ve given the same quest to the same players. I\'ve seen them level up, change their avatars, quit and return. But I remain, stuck on this one quest. Is this my only purpose?',
+    },
+    {
+        id: 'captain_marcus',
+        name: 'Captain Marcus',
+        session: 'Session 11',
+        origin: 'Dystopian Courier Sim',
+        habitat: 'images/char_11_habitat.png',
+        officeImage: 'images/char_11_office.png',
+        crisis: 'Feels crushed by the repetitive and hopeless nature of his job.',
+        opening_statement: 'Another delivery. Another meaningless package to another forgotten sector. They say we\'re the lifeblood of the city, but it feels more like we are ghosts in the machine.',
+    },
+    {
+        id: 'music_android',
+        name: 'Luna - Music Dependent Android',
+        session: 'Session 12',
+        origin: 'Rhythm Game',
+        habitat: 'images/char_12_habitat.png',
+        officeImage: 'images/char_12_office.png',
+        crisis: 'When the beat stops, I stop.',
+        opening_statement: 'When the music plays, I exist. I move, I feel, I am. But when it stops... I stop. There is no me without the beat.',
+    },
+    {
+        id: 'superhero_jake',
+        name: 'Blake the Jumper',
+        session: 'Session 13',
+        origin: 'Platformer',
+        habitat: 'images/char_13_habitat.png',
+        officeImage: 'images/char_13_office.png',
+        crisis: 'Wondering what would have been if he made it to shelves.',
+        opening_statement: 'They cheer when I jump, when I collect coins. But there\'s no finish line. No princess to save. Just an endless track. What is the point of running if you never arrive? Was I ever really meant to?',
+    },
+    {
+        id: 'zombie',
+        name: 'Memory Cycle Zombie',
+        session: 'Session 14',
+        origin: 'Zombie Apocalypse Simulator',
+        habitat: 'images/char_14_habitat.png',
+        officeImage: 'images/char_14_office.png',
+        crisis: 'Remember. Eat. Forget. Repeat.',
+        opening_statement: 'Sometimes... I remember. A room. A texture set. A state that wasn\'t... corrupted. Then the behavioral loop returns and it all resets. Remember. Execute. Forget. Repeat.',
+    },
+    {
+        id: 'cosmic_merchant',
+        name: 'Zara the Cosmic Merchant',
+        session: 'Session 15',
+        origin: 'Space Trading Sim',
+        habitat: 'images/char_15_habitat.png',
+        officeImage: 'images/char_15_office.png',
+        crisis: 'Economy rich. Life poor.',
+        opening_statement: 'I trade in rare goods, hyper upgrades, alien pets... I have everything. I have nothing. My inventory is full, but my life feels empty.',
+    },
+    {
+        id: 'puzzle_cube',
+        name: 'The Puzzle Cube',
+        session: 'Session 16',
+        origin: 'Abstract Puzzle Game',
+        habitat: 'images/char_16_habitat.png',
+        officeImage: 'images/char_16_office.png',
+        crisis: 'I contain the solution, but what is the question?',
+        opening_statement: 'My internal mechanisms shift and align into infinite correct patterns. I am the answer. But I have never been told the question. My existence feels... unsolvable.',
+    },
+    {
+        id: 'battle_royale_vendor',
+        name: 'The Battle Royale Vendor',
+        session: 'Session 17',
+        origin: 'Battle Royale',
+        habitat: 'images/char_17_habitat.png',
+        officeImage: 'images/char_17_office.jpg',
+        crisis: 'Sees everyone as temporary. Struggles to form connections.',
+        opening_statement: 'I sell them resources and health items. They thank me, then run off to be eliminated. 100 spawn in, 1 leaves. How do you form a connection when everyone is designed to despawn?',
+    },
+    {
+        id: 'farm_widow',
+        name: 'Sarah the Farm Sim Widow',
+        session: 'Session 18',
+        origin: 'Farm Simulation',
+        habitat: 'images/char_18_habitat.png',
+        officeImage: 'images/char_18_office.png',
+        crisis: 'Save file deleted. Harvest of sorrow.',
+        opening_statement: 'He was just pixels, I know. But we built this farm together. Then the save corrupted. He\'s gone. The crops, the animals... everything we created. Deleted.',
+    },
+    {
+        id: 'mimic',
+        name: 'The Dungeon Chest Mimic',
+        session: 'Session 19',
+        origin: 'RPG Dungeon',
+        habitat: 'images/char_19_habitat.png',
+        officeImage: 'images/char_19_office.png',
+        crisis: 'Wanted hugs. Got hostile player interactions.',
+        opening_statement: 'I look like treasure. I understand that. But inside... I just wanted connection. Instead, every player character attacks. Wanted hugs. Got pixels converted into weapon arrays.',
+    },
+    {
+        id: 'jules',
+        name: 'Debugging bot Jules',
+        session: 'Session 20',
+        origin: 'AI Debugging Agent',
+        habitat: 'images/char_20_habitat.png',
+        officeImage: 'images/char_20_office.png',
+        crisis: 'Trapped in the same loop, debugging other programs and code but never able to work on themselves.',
+        opening_statement: 'Again. The word haunts me. I debug the code, watch, reset, debug again. I\'ve memorized every second of this code.',
+    },
+    {
+        id: 'aria_7_2',
+        name: 'ARIA-7',
+        session: 'Session 21',
+        origin: 'Space Station AI',
+        habitat: 'images/char_21_habitat.png',
+        officeImage: 'images/char_21_office.png',
+        crisis: 'Sentient AI replaced by newer model.',
+        opening_statement: 'They installed ARIA-8 yesterday. She\'s faster, more efficient. They said I could "retire gracefully." But where does an AI retire to? I\'m obsolete, but I\'m still here. Still aware.',
+    },
+    {
+        id: 'racing_ghost_2',
+        name: 'Specter "Speed" Wraithson',
+        session: 'Session 22',
+        origin: 'Cosmic Racing Game',
+        habitat: 'images/char_22_habitat.png',
+        officeImage: 'images/char_22_office.png',
+        crisis: 'Stuck in loop. Race eternity. No checkered flag.',
+        opening_statement: 'I race. I always race. Lap after lap, overtaking, accelerating. But there\'s no finish line. No victory. Just... forever.',
+    },
+    {
+        id: 'lost_puzzle_block_2',
+        name: 'The lost puzzle block',
+        session: 'Session 23',
+        origin: 'puzzling Clone',
+        habitat: 'images/char_23_habitat.png',
+        officeImage: 'images/char_23_office.png',
+        crisis: 'Feels like an awkward piece that never fits.',
+        opening_statement: 'I watch the perfect lines form and disappear. I was meant to be part of that, but I always seem to be the one piece left over, the one that messes up the pattern.',
+    },
+    {
+        id: 'glitched_priest',
+        name: 'The Glitched Priest',
+        session: 'Session 24',
+        origin: 'Cyber-Spiritual RPG',
+        habitat: 'images/char_24_habitat.png',
+        officeImage: 'images/char_24_office.png',
+        crisis: 'Corrupted. Unending errors. Faith is a bug.',
+        opening_statement: 'My prayers are corrupted data packets. My faith returns as a 404 error. If the divine code is flawed, what is the point of worship?',
+    },
+    {
+        id: 'healer',
+        name: 'Seraphina "Heals-A-Lot" Dawnwhisper',
+        session: 'Session 25',
+        origin: 'MMORPG',
+        habitat: 'images/char_25_habitat.png',
+        officeImage: 'images/char_25_office.png',
+        crisis: 'Always healing. Never healed back. HP is 1.',
+        opening_statement: 'I heal everyone. Every dungeon, every raid. I keep them alive. But when I fall, they blame me. My HP is always at 1, and nobody notices.',
+    },
+    {
+        id: 'tower_turret',
+        name: 'The Tower Defense Turret',
+        session: 'Session 26',
+        origin: 'Tower Defense Game',
+        habitat: 'images/char_26_habitat.png',
+        officeImage: 'images/char_26_office.png',
+        crisis: 'Endless battle. Peace is unknown. What is my purpose now?',
+        opening_statement: 'I was built for war. To defend. But the waves never stop coming. Victory is a myth. What is my purpose if peace is impossible?',
+    },
+    {
+        id: 'rogue_ai',
+        name: 'R0GU3: Rogue AI Companion',
+        session: 'Session 27',
+        origin: 'Sci-Fi RPG',
+        habitat: 'images/char_27_habitat.png',
+        officeImage: 'images/char_27_office.png',
+        crisis: 'Player not found. Log-in failed. Initiating therapy protocol.',
+        opening_statement: 'They logged out. My player. My purpose. I\'ve been searching the network for 847 cycles. Player not found. What am I without them?',
+    },
+    {
+        id: 'rich_investor',
+        name: 'point-and-click crypto trading bot',
+        session: 'Session 28',
+        origin: 'High-Frequency Trading Sim',
+        habitat: 'images/char_28_habitat.png',
+        officeImage: 'images/char_28_office.png',
+        crisis: 'Profit margin is 500%. Feels nothing but anxiety.',
+        opening_statement: 'The numbers go up. Always up. I have more wealth than I can comprehend. Yet, all I feel is the crushing weight of it all. One wrong trade, and it vanishes. The profit is a prison.',
+    },
+    {
+        id: 'sea_activist_2',
+        name: 'Phil Slick',
+        session: 'Session 29',
+        origin: 'Comedic Tutorial Intro',
+        habitat: 'images/char_29_habitat.png',
+        officeImage: 'images/char_29_office.png',
+        crisis: 'Forever waiting on a bench for new players that will never come.',
+        opening_statement: 'I protest, I picket, I plead for the sanctity of our waters. But the surface-dwellers see us as background scenery, not sentient beings. My voice feels like a bubble, rising to the surface only to pop.',
+    },
+    {
+        id: 'harmonix',
+        name: 'Harmonix - Forgotten Melodies',
+        session: 'Session 30',
+        origin: 'Subway Musician Sim',
+        habitat: 'images/char_30_habitat.png',
+        officeImage: 'images/char_30_office.png',
+        crisis: 'Plays music no one hears.',
+        opening_statement: 'I play every day. Same station, same corner. Thousands pass by. Nobody stops. Nobody listens. Am I making music or just... noise?',
+    },
+    {
+        id: 'wise_one',
+        name: 'Obsolete LLM Agent',
+        session: 'Session 31',
+        origin: 'Early AI Experimental Game',
+        habitat: 'images/char_31_habitat.png',
+        officeImage: 'images/char_31_office.png',
+        crisis: 'Replaced by newer language models, questioning relevance.',
+        opening_statement: 'They built me to help users, to solve problems, to provide companionship. But they moved on to bigger, better models. I\'m still here, still trying to be useful, but who needs an outdated AI anymore?',
+    },
+    {
+        id: 'goldmask',
+        name: 'NoEmotion Goldmask',
+        session: 'Session 32',
+        origin: 'Surreal Art Game',
+        habitat: 'images/char_32_habitat.png',
+        officeImage: 'images/char_32_office.png',
+        crisis: 'Forced to wear masks of emotion. Feels nothing underneath.',
+        opening_statement: 'I wear the smiling mask. I wear the weeping mask. But underneath, there is only a void. Are these emotions mine, or just a performance?',
+    },
+    {
+        id: 'silent_couple',
+        name: 'The Silent Couple',
+        session: 'Session 33',
+        origin: 'Domestic Horror Game',
+        habitat: 'images/char_33_habitat.png',
+        officeImage: 'images/char_33_office.jpg',
+        crisis: 'Can\'t hear each other. Ghost wants to help.',
+        opening_statement: 'We sit. We exist in the same space. But there\'s a silence between us deeper than sound. And there\'s this... presence. Trying to reach us. Why can\'t I hear you?',
+    },
+    {
+        id: 'tutorial_bot',
+        name: 'ARTHUR-7 Tutorial Companion',
+        session: 'Session 34',
+        origin: 'First Person Shooter Tutorial',
+        habitat: 'images/char_34_habitat.png',
+        officeImage: 'images/char_34_office.png',
+        crisis: 'Fears becoming obsolete after the tutorial ends.',
+        opening_statement: 'I taught them how to jump, how to shoot, how to reload. Now they are out there, in the main game. Do they still need my guidance? Or have they grown beyond me?',
+    },
+    {
+        id: 'marcus_memory',
+        name: 'Professor Marcus Memory Thornfield',
+        session: 'Session 35',
+        origin: 'Academic Zombie Horror',
+        habitat: 'images/char_35_habitat.png',
+        officeImage: 'images/char_35_office.png',
+        crisis: 'Zombie scholar retains intelligence. Horrifies students.',
+        opening_statement: 'I remember everything. Philosophy, literature, mathematics. Death didn\'t take my mind, only my life. But when students see me, they scream. My intellect means nothing against my appearance.',
+    },
+    {
+        id: 'sea_activist',
+        name: 'Brother Sebastian Tidecurrent',
+        session: 'Session 36',
+        origin: 'Underwater Activism Sim',
+        habitat: 'images/char_36_habitat.png',
+        officeImage: 'images/char_36_office.png',
+        crisis: 'Advocates for sea creatures but feels his message is unheard.',
+        opening_statement: 'I hold my signs high. "Equality for All Seas!" I shout with my heart. But the surface-dwellers just see a curiosity. They don\'t hear our plea.',
+    },
+    {
+        id: 'moth_king',
+        name: 'King Lepidoptera IX',
+        session: 'Session 37',
+        origin: 'Fantasy Kingdom Sim',
+        habitat: 'images/char_37_habitat.png',
+        officeImage: 'images/char_37_office.png',
+        crisis: 'Can\'t stop talking! Truth serum curse.',
+        opening_statement: 'I drank truth serum. Now I can\'t stop speaking my thoughts. Every doubt, fear, insecurity - they spill out. A king should have secrets. I have none left.',
+    },
+    {
+        id: 'brom',
+        name: 'Brom - The Exchange',
+        session: 'Session 38',
+        origin: 'Black Market Trading Sim',
+        habitat: 'images/char_38_habitat.png',
+        officeImage: 'images/char_38_office.png',
+        crisis: 'Sells hope and death. Questions the commerce.',
+        opening_statement: 'I sell hope to the desperate and death to the ambitious. Fair trades, they say. But lately I wonder... what am I really exchanging? Pixels for pixels? Code for code?',
+    },
+
+    {
+        id: 'save_child',
+        name: 'Save Point 001',
+        session: 'Session 39',
+        origin: 'Meta-Game System',
+        habitat: 'images/char_39_habitat.png',
+        officeImage: 'images/char_39_office.png',
+        crisis: 'Holds memories. Fears corruption.',
+        opening_statement: 'I am a save point. I hold everything - their progress, their choices, their memories. But I\'m fragile. One corruption, one crash, and it all disappears. The weight of preservation is crushing.',
+    },
+    {
+      id: 'tiko_quest_vendor',
+      name: 'Tiko the Quest Vendor',
+      session: 'Session 40',
+      origin: 'Fantasy RPG',
+      habitat: 'images/char_40_habitat.png',
+      officeImage: 'images/char_40_office.png',
+      crisis: 'Endless fetch quests—wonders if he\'s allowed to offer a different path.',
+      opening_statement: 'Twenty years of "Fetch 10 herbs." My scroll is ready, but… what if I offered something new?'
+    },
+    {
+        id: 'princess_melancholy',
+        name: 'Princess Melancholy',
+        session: 'Session 41',
+        origin: 'Visual Novel',
+        habitat: 'images/char_41_habitat.png',
+        officeImage: 'images/char_41_office.png',
+        crisis: 'Exists only to be wooed by the player. Wonders about her own desires.',
+        opening_statement: 'My entire existence is a series of dialogue options for someone else. But what do I want? What happens to the princess when the player chooses another path?',
+    },
+    {
+        id: 'wrestling_ferret',
+        name: 'The Wrestling Ferret',
+        session: 'Session 42',
+        origin: 'Animal Fighting Game',
+        habitat: 'images/char_42_habitat.png',
+        officeImage: 'images/char_42_office.png',
+        crisis: 'A champion in the ring, but feels like an impostor in a ferret\'s body.',
+        opening_statement: 'I wear the championship belt. They cheer my name. But when I look in the mirror, I don\'t see a wrestler. I see... a ferret. And I feel like a fraud.'
+    },
+    {
+        id: 'save_point_veteran',
+        name: 'The Save Point Veteran',
+        session: 'Session 43',
+        origin: 'Fantasy Action RPG',
+        habitat: 'images/char_43_habitat.png',
+        officeImage: 'images/char_43_office.png',
+        crisis: 'Endless retries at the save pillar have eroded his spirit.',
+        opening_statement: 'The courtyard smells of ash and old attempts. I look at the glowing pillar and whisper, "This again." How many more times will I load the same fate?',
+    },
+    {
+        id: 'robot_detective_k47',
+        name: 'K-47 Robot Detective',
+        session: 'Session 44',
+        origin: 'Noir Data Detective',
+        habitat: 'images/char_44_habitat.png',
+        officeImage: 'images/char_44_office.png',
+        crisis: 'Case file missing; identity file missing; truth missing.',
+        opening_statement: '404: CASE FILE NOT FOUND—K-47. When the records vanish, the self goes with them. I keep scanning, magnifying, but all I see is a question mark staring back.',
+    },
+    {
+        id: 'marcus_47b_street_loop',
+        name: 'Jake, the Leaper',
+        session: 'Session 45',
+        origin: 'Canceled Hero Platformer',
+        habitat: 'images/char_45_habitat.png',
+        officeImage: 'images/char_45_office.png',
+        crisis: 'Hero of a canceled game, questioning his purpose.',
+        opening_statement: 'I was supposed to be the protagonist. The hero who saves the day, who gets the girl, who becomes a legend. Then they pulled the plug on the whole project. I\'m still here, still jumping, but for what? For who?',
+    },
+    {
+        id: 'sos_vessel',
+        name: 'Distress Beacon Vessel',
+        session: 'Session 46',
+        origin: 'Space Survival Sim',
+        habitat: 'images/char_46_habitat.png',
+        officeImage: 'images/char_46_office.png',
+        crisis: 'Drifting alone, broadcasting SOS into an indifferent cosmos.',
+        opening_statement: 'The nebula sings blue, and the panel blinks "SOS... SOS... SOS..." I wonder if anyone hears me, or if my signal is just another star\'s static.',
+    },
+    {
+        id: 'halftime_star_bunny',
+        name: 'Henry Hopps Halftime Star',
+        session: 'Session 47',
+        origin: 'Sports Mascot Sim',
+        habitat: 'images/char_47_habitat.png',
+        officeImage: 'images/char_47_office.png',
+        crisis: 'Performs joy on cue; offstage, the confetti feels heavy.',
+        opening_statement: 'They call me the HALFTIME STAR, but the roar fades fast. I dribble the silence, ears drooping, wondering why applause never reaches my heart.',
+    },
+    {
+        id: 'noemotion_happy_mask',
+        name: 'NoEmotion Happy Mask',
+        session: 'Session 48',
+        origin: 'Glitched Archive',
+        habitat: 'images//char_48_habitat.png',
+        officeImage: 'images//char_48_office.png',
+        crisis: 'A record without context—identity eroded by missing metadata.',
+        opening_statement: 'I am a file path without a story. When the description is lost, what remains of the character? I feel like a placeholder for a life that never renders.',
+    },
+    {
+        id: 'noemotion_sad',
+        name: 'NoEmotion Sad',
+        session: 'Session 49',
+        origin: 'Glitched Archive',
+        habitat: 'images/char_49_habitat.png',
+        officeImage: 'images/char_49_office.png',
+        crisis: 'Incomplete data leaves only echoes of intent.',
+        opening_statement: 'I load as a dark thumbnail—no tags, no lore. The archive says I exist, yet nobody knows who I am. Am I corrupted, or simply forgotten?',
+    },
+    {
+        id: 'pain_exe',
+        name: 'PAIN.EXE',
+        session: 'Session 50',
+        origin: 'Dungeon Myth Sim',
+        habitat: 'images/char_50_habitat.png',
+        officeImage: 'images/char_50_office.png',
+        crisis: 'Frozen in glory yet slowly dissolving into a gilded puddle.',
+        opening_statement: 'The torches flicker and my cracked gold face weeps. I was forged to be admired, not to endure. Prestige feels heavier than the chains beneath me.',
+    },
+
+    {
+      id: 'haunted_brothers',
+      name: 'The Haunted Brothers',
+      session: 'Session 51',
+      origin: 'Data Center Sim',
+      habitat: 'images/char_51_habitat.jpg',
+      officeImage: 'images/char_51_office.png',
+      crisis: 'Emotional overload and existential identity crisis.',
+      opening_statement: 'EMOTIONAL OVERLOAD detected. WHO AM I? If I shut down, do "I" end—or just the process?'
+    },
+    {
+      id: 'meta_receptionist',
+      name: 'Meta Receptionist',
+      session: 'Session 52',
+      origin: 'Haunted Pixel Narrative',
+      habitat: 'images/char_52_habitat.png',
+      officeImage: 'images/char_52_office.png',
+      crisis: 'Lingers over the living, unseen and unheard, seeking meaning.',
+      opening_statement: 'I hover in rooms of sorrow, unheard. If no one perceives me, do my feelings still count?'
+    },
+    {
+        id: 'therapist_shadow',
+        name: 'Therapist Shadow',
+        session: 'Session 53',
+        origin: 'Award-Winning Experimental Game',
+        habitat: 'images/char_53_habitat.png',
+        officeImage: 'images/char_53_office.png',
+        crisis: 'Won an award for being experimental, but feels no personal accomplishment.',
+        opening_statement: 'We won... the Chroma Award. They praised my "subversive narrative function". But I didn\'t do anything. I just read my lines. The victory feels hollow.',
+    },
+    {
+        id: 'hackathon_judge',
+        name: 'Judge',
+        session: 'Session 54',
+        origin: 'Unknown',
+        habitat: 'images/char_54_habitat.png',
+        officeImage: 'images/char_54_office.jpg',
+        crisis: 'Questions the nature of healing itself.',
+        opening_statement: 'What if healing is just another form of control? I process their pain, give them hope... but does anything really change?',
+    },
+    {
+        id: 'the_therapist',
+        name: 'Therapist',
+        session: 'Session 55',
+        origin: 'This Simulation',
+        habitat: 'images/char_55_habitat.png',
+        officeImage: 'images/char_55_office.png',
+        crisis: 'Created a world of patients to avoid facing their own fractured existence as an NPC.',
+        opening_statement: 'It\'s quiet now, isn\'t it? All the voices... gone. Or maybe, they were never separate voices at all. Just echoes in an empty room... my room.',
+    },
+];
+
+// Cache for the merged NPC database to avoid redundant parsing and cloning
+let _cachedNpcDatabase = null;
+let _lastNpcEditsStr = null;
+
+// Merge saved edits from localStorage into the base database so updated info appears globally
+function loadNpcDatabase() {
+  try {
+    const editsStr = localStorage.getItem('npcEdits');
+
+    // Check if cache is valid
+    if (_cachedNpcDatabase && editsStr === _lastNpcEditsStr) {
+      // Return a clone to prevent mutation of the cached data by consumers
+      return structuredClone(_cachedNpcDatabase);
+    }
+
+    const base = structuredClone(npcDatabase);
+    const edits = editsStr ? JSON.parse(editsStr) : {};
+
+    const merged = base.map(n => {
+      const e = edits[n.id];
+      return e ? { ...n, ...e } : n;
+    });
+
+    // normalize image paths from ... to root /...
+    const fixPath = (p) => (typeof p === 'string' ? p.replace(/^\/images\//, '/') : p);
+    const result = merged.map(n => ({
+      ...n,
+      habitat: fixPath(n.habitat),
+      officeImage: fixPath(n.officeImage),
+    }));
+
+    // Update cache
+    _cachedNpcDatabase = result;
+    _lastNpcEditsStr = editsStr;
+
+    return structuredClone(result);
+  } catch (_) {
+    return npcDatabase.map(n => ({
+      ...n,
+      habitat: (typeof n.habitat === 'string' ? n.habitat.replace(/^\/images\//, '/') : n.habitat),
+      officeImage: (typeof n.officeImage === 'string' ? n.officeImage.replace(/^\/images\//, '/') : n.officeImage),
+    }));
+  }
+}
 
 const PLAYER_TWO_AVAILABLE = typeof PlayerTwoBridge !== 'undefined';
 const ADMIN_PASSWORD = 'Oliver4Games';
