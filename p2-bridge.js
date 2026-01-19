@@ -322,10 +322,13 @@ Guidelines for your responses:
       sender_name: 'Therapist',
       sender_message: playerMessage,
       game_state_info: gameStateInfo,
-      tts: 'server'
+      tts: 'server',
+      stream: true // Always request streaming/SSE mode behavior
     };
     
     try {
+      // In SSE mode, we just send the request. The response comes via the SSE stream.
+      // We do not await a JSON body here.
       const response = await this.makeRequest(`${this.apiBase}/npcs/${npcId}/chat`, {
         method: 'POST',
         headers: this.getHeaders(),
@@ -336,14 +339,8 @@ Guidelines for your responses:
         throw new Error(`Chat failed: ${response.statusText}`);
       }
       
-      const data = await response.json();
-      
-      return {
-        message: data.message,
-        audio: data.audio,
-        npcId: npcId,
-        timestamp: Date.now()
-      };
+      // Fire and forget - return success immediately
+      return true;
       
     } catch (error) {
       console.error('Chat with NPC failed:', error);
