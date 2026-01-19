@@ -261,7 +261,17 @@ const PlayerTwoBridge = (window.PlayerTwoBridge = {
 
       if (!initResponse.ok) throw new Error('Failed to initiate auth flow');
 
-      const authData = await initResponse.json();
+      const rawData = await initResponse.json();
+      // Normalize response to ensure snake_case keys are available for consumers
+      const authData = {
+        ...rawData,
+        device_code: rawData.device_code || rawData.deviceCode,
+        user_code: rawData.user_code || rawData.userCode,
+        verification_uri: rawData.verification_uri || rawData.verificationUri,
+        verification_uri_complete: rawData.verification_uri_complete || rawData.verificationUriComplete,
+        expires_in: rawData.expires_in || rawData.expiresIn,
+        interval: rawData.interval || rawData.interval
+      };
 
       // Notify UI to show code
       if (onCodeReceived) {
@@ -333,6 +343,7 @@ const PlayerTwoBridge = (window.PlayerTwoBridge = {
           if (data.p2Key) return data.p2Key;
           // Some implementations return snake_case
           if (data.access_token) return data.access_token;
+          if (data.accessToken) return data.accessToken;
         } else if (response.status === 400) {
           // Check for slow_down or expired
           // standard behavior: keep polling on pending
@@ -4580,7 +4591,18 @@ class Game {
   }
 
   openPathToSelf() {
-    this.showPathSelfFloat('https://uxwq0l0o2qi9.space.minimax.io/');
+    const SIGNAL_LOST_URI = 'data:text/html;charset=utf-8,' + encodeURIComponent(`
+      <html>
+      <body style="background:#000;color:#64ffda;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;font-family:monospace;">
+        <div style="text-align:center;">
+          <h1 style="font-size:2rem;margin-bottom:1rem;">SIGNAL LOST</h1>
+          <p>The path to self is currently obscured.</p>
+          <p style="opacity:0.5;font-size:0.8rem;margin-top:2rem;">(External link expired)</p>
+        </div>
+      </body>
+      </html>
+    `);
+    this.showPathSelfFloat(SIGNAL_LOST_URI);
     if (this.pathSelfTimer) clearTimeout(this.pathSelfTimer);
     this.pathSelfTimer = setTimeout(() => {
       alert('A strange signal is interfering with your radio...');
