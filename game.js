@@ -4580,7 +4580,18 @@ class Game {
   }
 
   openPathToSelf() {
-    this.showPathSelfFloat('https://uxwq0l0o2qi9.space.minimax.io/');
+    const SIGNAL_LOST_URI = 'data:text/html;charset=utf-8,' + encodeURIComponent(`
+      <html>
+      <body style="background:#000;color:#64ffda;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;font-family:monospace;">
+        <div style="text-align:center;">
+          <h1 style="font-size:2rem;margin-bottom:1rem;">SIGNAL LOST</h1>
+          <p>The path to self is currently obscured.</p>
+          <p style="opacity:0.5;font-size:0.8rem;margin-top:2rem;">(External link expired)</p>
+        </div>
+      </body>
+      </html>
+    `);
+    this.showPathSelfFloat(SIGNAL_LOST_URI);
     if (this.pathSelfTimer) clearTimeout(this.pathSelfTimer);
     this.pathSelfTimer = setTimeout(() => {
       alert('A strange signal is interfering with your radio...');
