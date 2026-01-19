@@ -14,7 +14,7 @@ const PlayerTwoConfig = {
   authToken: null, // Example: "your-api-token-here"
 
   // Client ID for Device Code Flow
-  clientId: '019bc7e3-eca4-7be8-ab6b-38b6b01bf701',
+  clientId: '019bc7e3-eca4-7be8-ab6b-38b6b01bf701', // Linked to user account
 
   // API Base URL
   apiBase: 'https://api.player2.game/v1',
@@ -167,7 +167,7 @@ const PlayerTwoBridge = (window.PlayerTwoBridge = {
    */
   async init(config) {
     this.apiBase = config.apiBase || 'https://api.player2.game/v1';
-    this.authToken = config.authToken;
+    this.authToken = config.authToken || localStorage.getItem('player2_auth_token');
     this.clientId = config.clientId; // Should be added to config.js if needed
     this.maxRetries = config.environment?.maxRetries || 3;
     this.retryDelay = config.environment?.retryDelay || 1000;
@@ -247,6 +247,7 @@ const PlayerTwoBridge = (window.PlayerTwoBridge = {
     const localToken = await this.tryLocalLogin(clientId);
     if (localToken) {
       this.authToken = localToken;
+      localStorage.setItem('player2_auth_token', localToken);
       return localToken;
     }
 
@@ -271,6 +272,7 @@ const PlayerTwoBridge = (window.PlayerTwoBridge = {
       const token = await this.pollForToken(clientId, authData);
       if (token) {
         this.authToken = token;
+        localStorage.setItem('player2_auth_token', token);
         return token;
       }
     } catch (e) {
