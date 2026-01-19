@@ -110,6 +110,84 @@ export class Game {
     return '/therapy_office.png';
   }
 
+  getGameStateContext() {
+    return {
+      healed_npcs: Array.from(this.healedNPCs),
+      therapist_mental_state: this.therapistMentalState,
+      turn_count: this.turnCount,
+      bond_level: this.bondScores[this.currentNPC?.id] || 0
+    };
+  }
+
+  startPlayerTwoStream() {
+    if (!PLAYER_TWO_AVAILABLE) return;
+
+    console.log("Starting Player Two SSE Stream...");
+    if (typeof window.PlayerTwoBridge.listenForResponses === 'function') {
+      window.PlayerTwoBridge.listenForResponses(
+        (data) => this.handlePlayerTwoResponse(data),
+        (error) => {
+          console.error("Player Two Stream Error:", error);
+          // Optional: Retry logic or UI indication
+        }
+      );
+    } else {
+      console.warn("PlayerTwoBridge.listenForResponses is missing.");
+    }
+  }
+
+  handlePlayerTwoResponse(data) {
+    // 1. Handle Audio (TTS)
+    if (data.audio && this.settings.tts && !this.textOnlyMode) {
+      const audioUrl = `data:audio/mp3;base64,${data.audio}`;
+      // Use AudioPlayer or direct fallback
+      if (this.audioPlayer && this.audioPlayer.playAudioData) {
+         this.audioPlayer.playAudioData(audioUrl);
+      } else {
+         const audio = new Audio(audioUrl);
+         audio.volume = 1.0;
+         audio.play().catch(e => console.warn("Stream audio play failed:", e));
+      }
+    }
+
+    // 2. Handle Text (Chunks or Full Message)
+    if (data.text || data.message) {
+      const text = data.text || data.message;
+      const dialogueText = document.getElementById('dialogue');
+      const typingIndicator = document.getElementById('typing-indicator');
+
+      if (typingIndicator) typingIndicator.style.display = 'none';
+
+      // Append text to existing content
+      let lastMsg = this.conversationHistory[this.conversationHistory.length - 1];
+
+      if (lastMsg && lastMsg.role === 'assistant') {
+        lastMsg.content += text;
+      } else {
+        // Start a new message
+        lastMsg = { role: 'assistant', content: text };
+        this.conversationHistory.push(lastMsg);
+      }
+
+      // Visual update
+      if (lastMsg) {
+         dialogueText.textContent = lastMsg.content;
+      }
+
+      // Scroll to bottom
+      dialogueText.scrollTop = dialogueText.scrollHeight;
+
+      // Debounce to detect end of stream
+      if (this._responseDebounce) clearTimeout(this._responseDebounce);
+      this._responseDebounce = setTimeout(() => {
+        document.getElementById('player-input-area').style.display = 'flex';
+        document.getElementById('player-response').focus();
+        this.generateQuickReplies();
+        this.generatingResponse = false;
+      }, 1000);
+    }
+  }
+
   async callWebsimTTS(params) {
     const { text, voice } = params || {};
     if (!this.settings.tts || !text || this.textOnlyMode) return { url: null };
@@ -202,8 +280,11 @@ export class Game {
     this.loadCommunityCredits();
     this.renderCommunityCredits();
     this.npcs = loadNpcDatabase();
-    if (PLAYER_TWO_AVAILABLE && !window.PlayerTwoBridge.authToken && window.PlayerTwoBridge.clientId) {
-      this.promptForLogin();
+    if (PLAYER_TWO_AVAILABLE) {
+      this.startPlayerTwoStream(); // Initialize SSE listener
+      if (!window.PlayerTwoBridge.authToken && window.PlayerTwoBridge.clientId) {
+        this.promptForLogin();
+      }
     }
     this.reorderAndRenumber();
     this.loadNpcEdits();
@@ -571,18 +652,25 @@ export class Game {
     this.generatingResponse = true;
     const dialogueText = document.getElementById('dialogue'); const choicesContainer = document.getElementById('choices'); const typingIndicator = document.getElementById('typing-indicator'); const playerInputArea = document.getElementById('player-input-area');
     dialogueText.textContent = ''; choicesContainer.innerHTML = ''; typingIndicator.style.display = 'block'; playerInputArea.style.display = 'none';
+
     if (PLAYER_TWO_AVAILABLE && this.currentNPCId) {
       try {
         if (!this.currentNPCId) { await this.spawnCurrentNPC(); }
         const playerMessage = this.conversationHistory[this.conversationHistory.length - 1].content;
-        const response = await window.PlayerTwoBridge.chatWithNPC(this.currentNPCId, playerMessage, this.getGameStateContext());
-        const responseText = response.message;
-        this.conversationHistory.push({ role: 'assistant', content: responseText });
-        if (this.settings.tts && !this.textOnlyMode) { this.speak(responseText, this.currentNPC?.id); }
-        this.typewriter(dialogueText, responseText, () => { typingIndicator.style.display = 'none'; playerInputArea.style.display = 'flex'; document.getElementById('player-response').focus(); this.generateQuickReplies(); });
-      } catch (error) { console.error("Player Two NPC response failed, falling back:", error); await this.generateNpcResponseFallback(); }
-    } else { await this.generateNpcResponseFallback(); }
-    this.generatingResponse = false;
+
+        // Fire and forget - response handled by SSE stream in handlePlayerTwoResponse
+        await window.PlayerTwoBridge.chatWithNPC(this.currentNPCId, playerMessage, this.getGameStateContext());
+
+        // Note: generatingResponse remains true until the stream ends (handled in handlePlayerTwoResponse)
+      } catch (error) {
+        console.error("Player Two NPC response failed, falling back:", error);
+        await this.generateNpcResponseFallback();
+        this.generatingResponse = false;
+      }
+    } else {
+      await this.generateNpcResponseFallback();
+      this.generatingResponse = false;
+    }
   }
 
   async generateNpcResponseFallback() {
@@ -1558,6 +1646,7 @@ export class Game {
         setTimeout(() => modal.remove(), 2000);
       }
       this.toast("Player Two Account Connected!");
+      this.startPlayerTwoStream(); // Start stream after successful login
     } else {
       const modal = document.getElementById('auth-modal');
       if (modal) modal.remove();
