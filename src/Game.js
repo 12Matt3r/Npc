@@ -247,6 +247,7 @@ export class Game {
       if (e.code === 'Space' && document.getElementById('therapy-session').classList.contains('active')) this._skipTyping = true;
     });
     const fr = document.getElementById('floating-radio-btn'); if (fr) fr.addEventListener('click', () => this.openRadio());
+    const fsBtn = document.getElementById('global-fullscreen-btn'); if (fsBtn) fsBtn.addEventListener('click', () => this.toggleFullscreen());
     const psfClose = document.getElementById('psf-close-btn'); if (psfClose) psfClose.addEventListener('click', () => this.closePathSelfFloat());
     const psfToggle = document.getElementById('psf-toggle-btn'); if (psfToggle) psfToggle.addEventListener('click', () => this.togglePathSelfFloat && this.togglePathSelfFloat());
     const portraitEl = document.getElementById('npc-portrait'); if (portraitEl) portraitEl.addEventListener('click', () => this.togglePatientBio());
@@ -1588,6 +1589,7 @@ export class Game {
 
     } catch (error) {
       console.error('Failed to spawn NPC:', error);
+      this.toast(`Connection error: Failed to spawn ${this.currentNPC.name}.`);
       this.currentNPCId = null;
     }
   }
@@ -1915,8 +1917,12 @@ export class Game {
   async requestBrowserPermissions() {
     try {
       if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        try { const stream = await navigator.mediaDevices.getUserMedia({ audio: true }); stream.getTracks().forEach(track => track.stop()); this.settings.stt = true; this.sttEnabled = true; }
-        catch (error) { console.warn('Microphone permission denied or failed:', error); this.settings.stt = false; this.sttEnabled = false; }
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          stream.getTracks().forEach(track => track.stop());
+          this.settings.stt = true;
+          this.sttEnabled = true;
+        } catch (error) { console.warn('Microphone permission denied or failed:', error); this.settings.stt = false; this.sttEnabled = false; }
       } else { this.settings.stt = false; this.sttEnabled = false; }
       if ('speechSynthesis' in window) {
         try {
@@ -1928,10 +1934,22 @@ export class Game {
       localStorage.setItem('npcTherapySettings', JSON.stringify(this.settings));
       this.applySettings();
       if (this.settings.stt || this.settings.tts) { this.disableTextOnlyMode(); }
-      if (this.settings.stt && this.settings.tts) { this.toast('Voice features enabled! 🎙️🔊'); }
-      else if (this.settings.stt) { this.toast('Microphone enabled! Text-to-speech unavailable.'); }
-      else if (this.settings.tts) { this.toast('Text-to-speech enabled! Microphone unavailable.'); }
-      else { this.toast('Voice features unavailable. Text-only mode enabled.'); this.enableTextOnlyMode(); }
+
+      // Notify user about potential fullscreen exit
+      if (this.settings.stt && this.settings.tts) {
+        this.toast('Voice enabled! Tap ⛶ if fullscreen exited.');
+      } else if (this.settings.stt) {
+        this.toast('Mic enabled! Tap ⛶ if fullscreen exited.');
+      } else if (this.settings.tts) {
+        this.toast('Audio enabled! Tap ⛶ if fullscreen exited.');
+      } else {
+        this.toast('Voice features unavailable. Text-only mode enabled.');
+        this.enableTextOnlyMode();
+      }
+
+      // Attempt to restore fullscreen (often blocked by browser security after async call, but worth a try)
+      try { this.toggleFullscreen(); } catch(_) {}
+
     } catch (error) { console.error('Permission request failed:', error); this.toast('Permission request failed. Text-only mode enabled.'); this.enableTextOnlyMode(); }
   }
 

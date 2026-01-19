@@ -525,6 +525,34 @@ html, body {
     border-color: rgba(255,255,255,0.4);
 }
 
+/* Global Floating Fullscreen Button */
+.floating-fullscreen {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 3000; /* Higher than toasts and modals mostly */
+    background: rgba(0, 0, 0, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: #fff;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    font-family: 'Space Mono', monospace;
+    font-size: 1.2rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    backdrop-filter: blur(5px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.floating-fullscreen:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.6);
+    transform: scale(1.05);
+}
+
 .dialogue-box {
     position: absolute;
     left: 0.4rem;
