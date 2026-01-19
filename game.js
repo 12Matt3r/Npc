@@ -261,7 +261,17 @@ const PlayerTwoBridge = (window.PlayerTwoBridge = {
 
       if (!initResponse.ok) throw new Error('Failed to initiate auth flow');
 
-      const authData = await initResponse.json();
+      const rawData = await initResponse.json();
+      // Normalize response to ensure snake_case keys are available for consumers
+      const authData = {
+        ...rawData,
+        device_code: rawData.device_code || rawData.deviceCode,
+        user_code: rawData.user_code || rawData.userCode,
+        verification_uri: rawData.verification_uri || rawData.verificationUri,
+        verification_uri_complete: rawData.verification_uri_complete || rawData.verificationUriComplete,
+        expires_in: rawData.expires_in || rawData.expiresIn,
+        interval: rawData.interval || rawData.interval
+      };
 
       // Notify UI to show code
       if (onCodeReceived) {
@@ -333,6 +343,7 @@ const PlayerTwoBridge = (window.PlayerTwoBridge = {
           if (data.p2Key) return data.p2Key;
           // Some implementations return snake_case
           if (data.access_token) return data.access_token;
+          if (data.accessToken) return data.accessToken;
         } else if (response.status === 400) {
           // Check for slow_down or expired
           // standard behavior: keep polling on pending
