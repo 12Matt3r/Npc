@@ -1,33 +1,659 @@
-import { loadNpcDatabase } from '../npc-data.js';
-import {
-  PLAYER_TWO_AVAILABLE,
-  ADMIN_PASSWORD,
-  FEMALE_VOICES,
-  MALE_VOICES,
-  NPC_VOICE_MAP,
-  GENDER_HEURISTIC_FEMALE_NAMES,
-  GENDER_HEURISTIC_MALE_NAMES
-} from './data/constants.js';
-import { AudioPlayer, WebSpeechTTS } from './managers/AudioManager.js';
-import { SpeechRecognitionSystem } from './managers/InputManager.js';
-import { UIManager } from './managers/UIManager.js';
-import { AudioVisualizer } from './ui/AudioVisualizer.js';
-import { ResourceManager } from './managers/ResourceManager.js';
-import { MapRenderer } from './ui/MapRenderer.js';
-import {
-  sleep,
-  withTimeout,
-  debounce,
-  preloadBackground,
-  loadImage,
-  attachImageLoadingEffects
-} from './utils/helpers.js';
+import { loadNpcDatabase } from './npc-data.js';
 
+const PLAYER_TWO_AVAILABLE = typeof PlayerTwoBridge !== 'undefined';
+const ADMIN_PASSWORD = 'Oliver4Games';
+
+const FEMALE_VOICES = [
+  'EXAVITQu4vr4xnSDxMaL', // Bella
+  'IKne3meq5aSn9XLyUdCD', // Charlotte
+  'Erb2aVKbUjmDbZDW0EUl', // Matilda
+  'ThT5KcBeYPX3keUQqHPh', // Dorothy
+  'Xb7hHmsMSqMt8JDRKZmR', // Elsie
+  'dIHfPqOYQP7sYx0wBoQj', // Matilda (mature)
+  'v7j7aL4aL6yJ3S9K6Z4f', // Sarah
+  'ZLNc5MSGzPsl58pVVI6z', // Sophia
+  'iXJp8G1Y0OKL97s9mUq8', // Domi
+  'VR6AewLTigWG4xSOukaG', // Arnold (versatile)
+  'CYw3kZ02Hs0563khs1Fj', // Dave
+  'bVMeCyTHy58xNoL34h3p', // Clyde
+  'ErXwobaYiN019PkySvjV', // Donald
+  'jsCqWAovK2LkecY7zXl4', // Josh
+  'AIFQyd7GmdmPYYKDGn8P', // Matt
+];
+
+const MALE_VOICES = [
+  'pNInz6obpgDQGcFmaJgB', // Adam
+  'VR6AewLTigWG4xSOukaG', // Arnold
+  'CYw3kZ02Hs0563khs1Fj', // Dave
+  'bVMeCyTHy58xNoL34h3p', // Clyde
+  'ErXwobaYiN019PkySvjV', // Donald
+  'jsCqWAovK2LkecY7zXl4', // Josh
+  'AIFQyd7GmdmPYYKDGn8P', // Matt
+  '3HO6Pj9B8qLcGHYMSnQF', // Michael
+  'EjaXVo2F1d74l9kC1HMi', // James
+  'PfluYxWGeiGYBoNE9tP7', // William
+  'KOun72jFzG5uUaz8Rw9g', // Lewis
+  'AVM5jL4EX9UY79nz8f4b', // Robert
+  'EUl2dcsEgNVTqB9q4eVx', // Sam
+  'gK5j0S6w7W7Q9F2cM1pF', // Thomas
+  'x4rC9rTF2y4H7l4G9v5m', // Ethan
+];
+
+const NPC_VOICE_MAP = {
+  mira_healer: "en-female",
+  byte_glitched_courier: "en-male",
+  captain_loop: "en-male",
+  daisy_exe: "en-female",
+  rustjaw: "en-male",
+  worm: "en-male",
+  chess_bishop: "en-male",
+  pebble: "en-male",
+  glitch_exe: "en-female",
+  wise_one_gerald: "en-male",
+  captain_marcus: "en-male",
+  music_android: "en-female",
+  superhero_jake: "en-male",
+  zombie: "en-male",
+  cosmic_merchant: "en-female",
+  puzzle_cube: "en-male",
+  battle_royale_vendor: "en-male",
+  farm_widow: "en-female",
+  mimic: "en-male",
+  jules: "en-female",
+  aria_7_2: "en-female",
+  racing_ghost_2: "en-male",
+  lost_tetris_block_2: "en-male",
+  glitched_priest: "en-male",
+  healer: "en-female",
+  tower_turret: "en-male",
+  rogue_ai: "en-male",
+  rich_investor: "en-male",
+  sea_activist_2: "en-male",
+  harmonix: "en-male",
+  wise_one: "en-male",
+  goldmask: "en-male",
+  silent_couple: "en-male",
+  tutorial_bot: "en-male",
+  marcus_memory: "en-male",
+  sea_activist: "en-male",
+  moth_king: "en-male",
+  brom: "en-male",
+  save_child: "en-female",
+  tiko_quest_vendor: "en-male",
+  princess_melancholy: "en-female",
+  wrestling_ferret: "en-male",
+  save_point_veteran: "en-male",
+  robot_detective_k47: "en-male",
+  marcus_47b_street_loop: "en-male",
+  sos_vessel: "en-male",
+  halftime_star_bunny: "en-male",
+  unknown_fragment_8887: "en-male",
+  unknown_fragment_8909: "en-male",
+  golden_melting_effigy: "en-male",
+  sentient_server: "en-male",
+  therapy_specter: "en-male",
+  meta_receptionist: "en-female",
+  therapist_shadow: "en-male",
+  hackathon_judge: "en-female",
+  the_therapist: "en-female",
+};
+
+// Hoisted static data for gender heuristics
+const GENDER_HEURISTIC_FEMALE_NAMES = ['sarah', 'emma', 'sophie', 'chloe', 'ava', 'mia', 'isabella', 'emily', 'grace', 'hannah', 'lily', 'zoe', 'leah', 'lucy', 'ella', 'freya', 'ivy', 'scarlett', 'imogen', 'poppy', 'alice', 'ruby', 'charlie', 'brooke', 'daisy'];
+const GENDER_HEURISTIC_MALE_NAMES = ['oliver', 'harry', 'jack', 'jacob', 'noah', 'charlie', 'thomas', 'william', 'james', 'george', 'alfie', 'joshua', 'muhammad', 'harrison', 'leo', 'alexander', 'archie', 'mason', 'ethan', 'joseph', 'freddie', 'samuel', 'ryan'];
+// Generic helpers
+function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+
+async function withTimeout(promise, ms) {
+  let t; const timeout = new Promise((_, rej) => t = setTimeout(() => rej(new Error('timeout')), ms));
+  try { const res = await Promise.race([promise, timeout]); clearTimeout(t); return res; } finally { clearTimeout(t); }
+}
+
+function debounce(fn, delay = 200) {
+  let t;
+  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), delay); };
+}
+
+// Image loading helpers
+async function preloadBackground(url) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve(true);
+    img.onerror = () => resolve(false);
+    img.src = url;
+  });
+}
+
+async function loadImage(url, timeout = 15000) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    let done = false;
+    const t = setTimeout(() => { if (!done) { done = true; resolve(false); img.src = ''; } }, timeout);
+    img.onload = () => { if (!done) { done = true; clearTimeout(t); resolve(true); } };
+    img.onerror = () => { if (!done) { done = true; clearTimeout(t); resolve(false); } };
+    img.src = url;
+  });
+}
+
+function attachImageLoadingEffects(img) {
+  if (!img) return;
+  img.classList.add('loading', 'skeleton');
+  const onLoad = () => { img.classList.remove('loading', 'skeleton'); img.classList.add('loaded'); img.removeEventListener('load', onLoad); };
+  img.addEventListener('load', onLoad);
+  img.addEventListener('error', () => { img.classList.remove('loading'); });
+  if (img.complete) onLoad();
+}
+// --- Simple Audio Player for UI sounds ---
+class AudioPlayer {
+  constructor() {
+    this.enabled = true;
+    this.sounds = {
+      confirm: new Audio('/button-press.mp3'),
+      error: new Audio('/error.mp3'),
+    };
+    Object.values(this.sounds).forEach(a => {
+      a.volume = 0.9;
+      a.preload = 'auto';
+    });
+  }
+  playSound(name) {
+    if (!this.enabled) return;
+    const snd = this.sounds[name];
+    if (!snd) return;
+    try {
+      snd.currentTime = 0;
+      snd.play().catch(() => {});
+    } catch (_) {}
+  }
+  setEnabled(on) {
+    this.enabled = !!on;
+  }
+}
+
+// --- Web Speech API TTS ---
+class WebSpeechTTS {
+  constructor() {
+    this.synth = window.speechSynthesis;
+    this.voices = [];
+    this.voicesLoaded = false;
+    this.loadVoices();
+  }
+
+  loadVoices() {
+    if (this.synth) {
+      this.voices = this.synth.getVoices();
+      if (this.voices.length > 0) {
+        this.voicesLoaded = true;
+      } else {
+        // Load voices asynchronously
+        window.speechSynthesis.onvoiceschanged = () => {
+          this.voices = this.synth.getVoices();
+          this.voicesLoaded = true;
+        };
+      }
+    }
+  }
+
+  getVoiceForName(voiceName) {
+    if (!this.voicesLoaded || !this.voices.length) return null;
+
+    // Try to find exact match first
+    let voice = this.voices.find(v => v.name === voiceName);
+
+    // If not found, try partial match
+    if (!voice && voiceName) {
+      voice = this.voices.find(v => v.name.toLowerCase().includes(voiceName.toLowerCase()));
+    }
+
+    // Fallback to default
+    if (!voice) {
+      voice = this.voices.find(v => v.default) || this.voices[0];
+    }
+
+    return voice;
+  }
+
+  async speak(text, voiceName) {
+    return new Promise((resolve, reject) => {
+      if (!this.synth) {
+        reject(new Error('Speech synthesis not supported'));
+        return;
+      }
+
+      // Cancel any ongoing speech
+      this.synth.cancel();
+
+      const utterance = new SpeechSynthesisUtterance(text);
+
+      const voice = this.getVoiceForName(voiceName);
+      if (voice) {
+        utterance.voice = voice;
+      }
+
+      utterance.rate = 0.9;
+      utterance.pitch = 1.0;
+      utterance.volume = 1.0;
+
+      utterance.onend = () => resolve();
+      utterance.onerror = (event) => reject(new Error(event.error));
+
+      this.synth.speak(utterance);
+    });
+  }
+}
+// Placeholder for centralized game state logic
+// Currently game state is mixed in Game.js
+
+class GameState {
+  constructor() {
+    this.npcs = loadNpcDatabase();
+    this.healedNPCs = new Set();
+    this.unlockedNPCs = new Set();
+    this.therapistMentalState = 0;
+    this.collectibles = [];
+    this.communityCredits = [];
+    this.bondScores = {};
+    this.npcNotes = {};
+    this.gameTime = 0;
+    this.startTime = null;
+    this.chromaAwardGiven = false;
+
+    // Versioning
+    this.unlockedVersion = 0;
+    this.healedVersion = 0;
+    this.npcEditsVersion = 0;
+  }
+}
+
+// --- Speech Recognition System ---
+class SpeechRecognitionSystem {
+  constructor() {
+    this.recognition = null;
+    this.isListening = false;
+    this.supported = 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
+
+    if (this.supported) {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      this.recognition = new SpeechRecognition();
+      this.setupRecognition();
+    }
+  }
+
+  setupRecognition() {
+    this.recognition.continuous = false;
+    this.recognition.interimResults = true;
+    this.recognition.lang = 'en-US';
+    this.recognition.maxAlternatives = 1;
+  }
+
+  start(onResult, onError, onStart, onAudioContext) {
+    // Prefer Player2 STT if available and authenticated
+    if (PLAYER_TWO_AVAILABLE && (window.PlayerTwoBridge.authToken || window.PlayerTwoBridge.clientId)) {
+      this.usePlayerTwoSTT(onResult, onError, onStart, onAudioContext);
+      return;
+    }
+
+    if (!this.supported) {
+      onError(new Error('Speech recognition not supported in this browser'));
+      return;
+    }
+
+    if (this.isListening) {
+      this.stop();
+    }
+
+    this.recognition.onresult = (event) => {
+      let interimTranscript = '';
+      let finalTranscript = '';
+
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          finalTranscript += transcript;
+        } else {
+          interimTranscript += transcript;
+        }
+      }
+
+      onResult(finalTranscript || interimTranscript, finalTranscript);
+    };
+
+    this.recognition.onerror = (event) => {
+      this.isListening = false;
+      onError(new Error(event.error));
+    };
+
+    this.recognition.onstart = () => {
+      this.isListening = true;
+      onStart();
+    };
+
+    this.recognition.onend = () => {
+      this.isListening = false;
+    };
+
+    try {
+      this.recognition.start();
+    } catch (error) {
+      onError(error);
+    }
+  }
+
+  usePlayerTwoSTT(onResult, onError, onStart, onAudioContext) {
+    if (this.isListening) this.stop();
+
+    this.isListening = true;
+    onStart();
+
+    window.PlayerTwoBridge.startSTT({
+      onTranscript: (text, isFinal) => {
+        // Player2 STT sends results. isFinal is true for committed text.
+        // We simulate interim/final behavior for the UI.
+        onResult(text, isFinal ? text : "");
+      },
+      onError: (err) => {
+        this.isListening = false;
+        onError(err);
+      },
+      onStart: () => {
+        // Already triggered onStart above, but could sync state here
+      },
+      onStop: () => {
+        this.isListening = false;
+      },
+      onAudioContextReady: (ctx, stream) => {
+        if (onAudioContext) onAudioContext(ctx, stream);
+      }
+    });
+  }
+
+  stop() {
+    if (PLAYER_TWO_AVAILABLE && this.isListening) {
+      window.PlayerTwoBridge.stopSTT();
+    }
+
+    if (this.recognition && this.isListening) {
+      this.recognition.stop();
+    }
+    this.isListening = false;
+  }
+}
+
+class ResourceManager {
+  constructor() {
+    this.cache = new Map();
+    this.inFlight = new Map();
+  }
+
+  async preloadImage(url) {
+    if (!url) return;
+    if (this.cache.has(url)) return this.cache.get(url);
+    if (this.inFlight.has(url)) return this.inFlight.get(url);
+
+    const promise = new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        this.cache.set(url, img);
+        this.inFlight.delete(url);
+        resolve(img);
+      };
+      img.onerror = (e) => {
+        this.inFlight.delete(url);
+        reject(e);
+      };
+      img.src = url;
+    });
+
+    this.inFlight.set(url, promise);
+    return promise;
+  }
+
+  async preloadAudio(url) {
+    if (!url) return;
+    // Basic pre-fetch for browser cache
+    try {
+      await fetch(url);
+    } catch (_) { /* ignore */ }
+  }
+
+  preloadNpcAssets(npcs, priorityIndex, range = 2) {
+    // Preload immediate neighbors
+    for (let i = Math.max(0, priorityIndex - range); i < Math.min(npcs.length, priorityIndex + range + 1); i++) {
+      const npc = npcs[i];
+      if (npc.habitat) this.preloadImage(npc.habitat);
+      if (npc.officeImage) this.preloadImage(npc.officeImage);
+    }
+  }
+}
+// Placeholder for now, eventually this will handle UI interactions
+// Currently most UI logic is tightly coupled in Game.js
+class UIManager {
+  constructor(game) {
+    this.game = game;
+  }
+
+  showLoader() { document.getElementById('global-loader').style.display = 'flex'; }
+  hideLoader() { document.getElementById('global-loader').style.display = 'none'; }
+
+  toast(msg) {
+    const el = document.getElementById('toast');
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.add('show');
+    setTimeout(() => el.classList.remove('show'), 3200);
+  }
+}
+class AudioVisualizer {
+  constructor(canvasId) {
+    this.canvas = document.getElementById(canvasId);
+    this.ctx = this.canvas ? this.canvas.getContext('2d') : null;
+    this.analyser = null;
+    this.source = null;
+    this.dataArray = null;
+    this.animationId = null;
+    this.isActive = false;
+    this.audioContext = null;
+  }
+
+  ensureAudioContext() {
+    if (!this.audioContext) {
+      this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (this.audioContext.state === 'suspended') {
+      this.audioContext.resume();
+    }
+    return this.audioContext;
+  }
+
+  attachToContext(audioContext, stream) {
+    if (!this.canvas || !audioContext || !stream) return;
+    this.audioContext = audioContext; // Cache it
+
+    this.cleanup();
+
+    this.analyser = this.audioContext.createAnalyser();
+    this.analyser.fftSize = 256;
+    this.source = this.audioContext.createMediaStreamSource(stream);
+    this.source.connect(this.analyser);
+    // Microphone: Do not connect to destination (feedback loop)
+
+    this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
+    this.isActive = true;
+    this.draw();
+  }
+
+  attachToElement(audioElement) {
+    if (!this.canvas || !audioElement) return;
+
+    // Ensure element is cross-origin safe if needed (though data URIs are fine)
+    if (!audioElement.crossOrigin) audioElement.crossOrigin = "anonymous";
+
+    const ctx = this.ensureAudioContext();
+    this.cleanup();
+
+    this.analyser = ctx.createAnalyser();
+    this.analyser.fftSize = 256;
+
+    try {
+      this.source = ctx.createMediaElementSource(audioElement);
+      this.source.connect(this.analyser);
+      this.analyser.connect(ctx.destination); // Connect to speakers!
+    } catch (e) {
+      console.warn("AudioVisualizer: Failed to attach to element", e);
+      return;
+    }
+
+    this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
+    this.isActive = true;
+    this.draw();
+
+    // Auto-stop on end
+    audioElement.onended = () => this.stop();
+  }
+
+  cleanup() {
+    if (this.source) {
+      try { this.source.disconnect(); } catch(e){}
+      this.source = null;
+    }
+    if (this.animationId) {
+      cancelAnimationFrame(this.animationId);
+      this.animationId = null;
+    }
+  }
+
+  draw() {
+    if (!this.isActive || !this.ctx) return;
+
+    this.animationId = requestAnimationFrame(() => this.draw());
+
+    if (this.analyser) {
+        this.analyser.getByteFrequencyData(this.dataArray);
+    }
+
+    const width = this.canvas.width;
+    const height = this.canvas.height;
+    const barWidth = (width / (this.dataArray ? this.dataArray.length : 1)) * 2.5;
+    let x = 0;
+
+    this.ctx.clearRect(0, 0, width, height);
+
+    // Gradient
+    const gradient = this.ctx.createLinearGradient(0, 0, 0, height);
+    gradient.addColorStop(0, '#64ffda');
+    gradient.addColorStop(1, '#1a1a2e');
+    this.ctx.fillStyle = gradient;
+
+    if (this.dataArray) {
+        for (let i = 0; i < this.dataArray.length; i++) {
+        const barHeight = this.dataArray[i] / 2;
+        this.ctx.fillRect(x, height - barHeight, barWidth, barHeight);
+        x += barWidth + 1;
+        }
+    }
+  }
+
+  stop() {
+    this.isActive = false;
+    this.cleanup();
+    if (this.ctx) this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+  }
+}
+class MapRenderer {
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d', { alpha: false }); // Optimize for no transparency if possible
+    this.offscreen = null;
+    this.useOffscreen = !!window.OffscreenCanvas;
+
+    if (this.useOffscreen) {
+      try {
+        this.offscreen = canvas.transferControlToOffscreen();
+        // In a real implementation, we'd spawn a Worker here.
+        // For this refactor, we'll keep it on main thread but use offscreen buffer technique
+        // actually transferControlToOffscreen detaches the canvas, so we can't draw to it from main thread easily without a worker.
+        // Let's stick to standard double buffering for now to stay safe within this refactor scope.
+        this.offscreen = document.createElement('canvas');
+        this.offCtx = this.offscreen.getContext('2d');
+        this.useOffscreen = true; // Manual double buffer
+      } catch (e) {
+        this.useOffscreen = false;
+      }
+    }
+  }
+
+  resize(width, height, dpr) {
+    this.width = width;
+    this.height = height;
+    this.dpr = dpr;
+
+    this.canvas.width = width * dpr;
+    this.canvas.height = height * dpr;
+    this.canvas.style.width = width + 'px';
+    this.canvas.style.height = height + 'px';
+
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    if (this.useOffscreen && this.offscreen) {
+      this.offscreen.width = width * dpr;
+      this.offscreen.height = height * dpr;
+      this.offCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+  }
+
+  render(nodes, state) {
+    const targetCtx = this.useOffscreen ? this.offCtx : this.ctx;
+    const { width, height } = this;
+
+    // Clear
+    targetCtx.fillStyle = '#1a1a2e'; // Match bg color
+    targetCtx.fillRect(0, 0, width, height);
+
+    const centerX = width / 2;
+    const centerY = height / 2;
+    const radius = Math.min(width, height) * 0.4;
+
+    targetCtx.save();
+    targetCtx.translate(centerX, centerY);
+    targetCtx.scale(state.zoom, state.zoom);
+    targetCtx.translate(-centerX + state.panX, -centerY + state.panY);
+
+    // Draw connections
+    targetCtx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    targetCtx.lineWidth = 1;
+    targetCtx.beginPath();
+
+    nodes.forEach((pos1, i) => {
+      nodes.forEach((pos2, j) => {
+        if (i < j && (pos1.index + pos2.index) % 5 < 2) {
+          targetCtx.moveTo(pos1.x, pos1.y);
+          targetCtx.lineTo(pos2.x, pos2.y);
+        }
+      });
+    });
+    targetCtx.stroke();
+
+    // Draw nodes
+    nodes.forEach(pos => {
+      targetCtx.beginPath();
+      targetCtx.arc(pos.x, pos.y, 6, 0, Math.PI * 2);
+      targetCtx.fillStyle = pos.healed ? '#4CAF50' : '#fff';
+      targetCtx.fill();
+    });
+
+    targetCtx.restore();
+
+    // Blit if using offscreen buffer
+    if (this.useOffscreen) {
+      this.ctx.drawImage(this.offscreen, 0, 0, width, height);
+    }
+  }
+}
 /**
  * Main Game Controller
  * Manages game state, NPC interactions, and SDK integration.
  */
-export class Game {
+class Game {
   constructor() {
     /** @type {Array<Object>} List of NPC definitions */
     this.npcs = [];
@@ -2280,3 +2906,43 @@ export class Game {
   hasAutosave() { try { return !!localStorage.getItem('autosave_v1'); } catch (_) { return false; } }
   continueAutosave() { if (this.loadAutosaveIfAvailable()) this.showScreen('main-menu'); }
 }
+
+// Global error handler
+window.addEventListener('error', function(event) {
+  if (event.message === 'Script error.') { console.error('A cross-origin script error occurred.'); return; }
+  const errorMsg = `Unhandled Error:
+    Message: ${event.message}
+    File: ${event.filename}
+    Line: ${event.lineno}, Col: ${event.colno}`;
+  console.error(errorMsg);
+
+  // Show user-friendly toast if game is initialized
+  if (window.game && window.game.toast) {
+    window.game.toast("An error occurred. Please check console.");
+  }
+});
+
+// Initialize
+window.onYouTubeIframeAPIReady = function() {
+  if (window.game) {
+    window.game.ytApiReady = true;
+    if (document.getElementById('radio-modal').classList.contains('active')) window.game.createYtPlayer();
+  }
+};
+
+document.addEventListener('DOMContentLoaded', async () => {
+  // Initialize Player Two Bridge first
+  if (typeof PlayerTwoBridge !== 'undefined' && typeof PlayerTwoConfig !== 'undefined') {
+    try {
+      await PlayerTwoBridge.init(PlayerTwoConfig);
+      console.log('✓ Player Two Bridge initialized');
+    } catch (error) {
+      console.error('Player Two initialization failed:', error);
+    }
+  }
+
+  window.game = new Game();
+  window.game.init();
+  // Start fresh; user can choose CONTINUE if autosave exists
+  window.game.newGame();
+});
